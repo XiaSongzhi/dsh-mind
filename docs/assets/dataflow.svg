@@ -1,0 +1,141 @@
+<svg xmlns="http://www.w3.org/2000/svg" width="1180" height="700" viewBox="0 0 1180 700" font-family="'Microsoft YaHei',system-ui,sans-serif">
+  <defs>
+    <marker id="a2" markerWidth="10" markerHeight="10" refX="8" refY="3" orient="auto">
+      <path d="M0,0 L9,3 L0,6 Z" fill="#8f94b5"/>
+    </marker>
+  </defs>
+  <rect width="1180" height="700" fill="#0d0f1c"/>
+  <text x="30" y="38" fill="#e6e8f5" font-size="20" font-weight="650">记忆生命周期与检索注入（数据流）</text>
+
+  <!-- 写入管线 -->
+  <text x="30" y="80" fill="#aabaff" font-size="14" font-weight="600">写入管线（对话时 + 睡眠时）</text>
+  <g font-size="11" fill="#aeb2cf">
+    <rect x="30" y="96" width="130" height="52" rx="8" fill="#151829" stroke="#262b4a"/>
+    <text x="95" y="118" text-anchor="middle" fill="#f4f5fc">对话输入</text>
+    <text x="95" y="136" text-anchor="middle" font-size="10">缓冲 12 条 / 工具 note</text>
+
+    <rect x="190" y="96" width="130" height="52" rx="8" fill="#151829" stroke="#262b4a"/>
+    <text x="255" y="118" text-anchor="middle" fill="#f4f5fc">事件识别</text>
+    <text x="255" y="136" text-anchor="middle" font-size="10">LLM 摘要（队列通道）</text>
+
+    <rect x="350" y="96" width="130" height="52" rx="8" fill="#151829" stroke="#262b4a"/>
+    <text x="415" y="118" text-anchor="middle" fill="#f4f5fc">候选记忆</text>
+    <text x="415" y="136" text-anchor="middle" font-size="10">episode / fact / lesson…</text>
+
+    <rect x="510" y="96" width="130" height="52" rx="8" fill="#151829" stroke="#262b4a"/>
+    <text x="575" y="118" text-anchor="middle" fill="#f4f5fc">重要性评估</text>
+    <text x="575" y="136" text-anchor="middle" font-size="10">0~1 · 情绪标注</text>
+
+    <rect x="670" y="96" width="130" height="52" rx="8" fill="#151829" stroke="#262b4a"/>
+    <text x="735" y="118" text-anchor="middle" fill="#f4f5fc">事实/推断区分</text>
+    <text x="735" y="136" text-anchor="middle" font-size="10">is_inference · confirmed</text>
+
+    <rect x="830" y="96" width="130" height="52" rx="8" fill="#151829" stroke="#262b4a"/>
+    <text x="895" y="118" text-anchor="middle" fill="#f4f5fc">去重 + 冲突</text>
+    <text x="895" y="136" text-anchor="middle" font-size="10">Dice/包含 ≥0.75 · 反义对</text>
+
+    <rect x="990" y="96" width="150" height="52" rx="8" fill="#1b2440" stroke="#3b3f78"/>
+    <text x="1065" y="118" text-anchor="middle" fill="#b4b7fa" font-weight="600">SQLite 主库写入</text>
+    <text x="1065" y="136" text-anchor="middle" font-size="10">唯一权威 + FTS 索引 + 审计</text>
+
+    <line x1="160" y1="122" x2="188" y2="122" stroke="#8f94b5" marker-end="url(#a2)"/>
+    <line x1="320" y1="122" x2="348" y2="122" stroke="#8f94b5" marker-end="url(#a2)"/>
+    <line x1="480" y1="122" x2="508" y2="122" stroke="#8f94b5" marker-end="url(#a2)"/>
+    <line x1="640" y1="122" x2="668" y2="122" stroke="#8f94b5" marker-end="url(#a2)"/>
+    <line x1="800" y1="122" x2="828" y2="122" stroke="#8f94b5" marker-end="url(#a2)"/>
+    <line x1="960" y1="122" x2="988" y2="122" stroke="#8f94b5" marker-end="url(#a2)"/>
+  </g>
+
+  <!-- 检索注入 -->
+  <text x="30" y="210" fill="#aabaff" font-size="14" font-weight="600">检索与注入（每轮 · 省 token）</text>
+  <g font-size="11" fill="#aeb2cf">
+    <rect x="30" y="226" width="170" height="66" rx="8" fill="#151829" stroke="#262b4a"/>
+    <text x="115" y="250" text-anchor="middle" fill="#f4f5fc">意图/实体识别</text>
+    <text x="115" y="268" text-anchor="middle" font-size="10">最近上下文 + 会话令牌轮</text>
+
+    <rect x="240" y="226" width="220" height="66" rx="8" fill="#151829" stroke="#262b4a"/>
+    <text x="350" y="250" text-anchor="middle" fill="#f4f5fc">混合检索打分</text>
+    <text x="350" y="268" text-anchor="middle" font-size="10">.56 关键词 + .14 图谱 + .19 重要性 + .11 新鲜度</text>
+    <text x="350" y="284" text-anchor="middle" font-size="10">× decay（遗忘权重）· 语义槽位 0.18 预留</text>
+
+    <rect x="500" y="226" width="170" height="66" rx="8" fill="#151829" stroke="#262b4a"/>
+    <text x="585" y="250" text-anchor="middle" fill="#f4f5fc">过滤 + 预算</text>
+    <text x="585" y="268" text-anchor="middle" font-size="10">≥0.45 分 · top-2 · 单条 ≤80 字</text>
+    <text x="585" y="284" text-anchor="middle" font-size="10">总预算 3500（mood 各节先记账）</text>
+
+    <rect x="710" y="226" width="200" height="66" rx="8" fill="#1b2440" stroke="#3b3f78"/>
+    <text x="810" y="250" text-anchor="middle" fill="#b4b7fa" font-weight="600">注入块（唯一注入口）</text>
+    <text x="810" y="268" text-anchor="middle" font-size="10">【记忆】【心情】【经验卡】【偏好】</text>
+    <text x="810" y="284" text-anchor="middle" font-size="10">每块 marker + 独立开关 + 字数可解释</text>
+
+    <line x1="200" y1="259" x2="238" y2="259" stroke="#8f94b5" marker-end="url(#a2)"/>
+    <line x1="460" y1="259" x2="498" y2="259" stroke="#8f94b5" marker-end="url(#a2)"/>
+    <line x1="670" y1="259" x2="708" y2="259" stroke="#8f94b5" marker-end="url(#a2)"/>
+  </g>
+
+  <!-- 三级遗忘 -->
+  <text x="30" y="340" fill="#aabaff" font-size="14" font-weight="600">三级遗忘（遗忘 ≠ 删除）</text>
+  <g font-size="11" fill="#aeb2cf">
+    <rect x="30" y="356" width="340" height="70" rx="8" fill="#151829" stroke="#262b4a"/>
+    <text x="200" y="380" text-anchor="middle" fill="#f4f5fc">① 降权（decay ×0.5 / 纠正 ×0.85）</text>
+    <text x="200" y="400" text-anchor="middle" font-size="10">检索排序变低 · 完全可逆 · 原文不动</text>
+
+    <rect x="420" y="356" width="340" height="70" rx="8" fill="#151829" stroke="#262b4a"/>
+    <text x="590" y="380" text-anchor="middle" fill="#f4f5fc">② 压缩归档（status=archived）</text>
+    <text x="590" y="400" text-anchor="middle" font-size="10">FTS 摘除 · 原文保留在行内 · 可恢复</text>
+
+    <rect x="810" y="356" width="340" height="70" rx="8" fill="#151829" stroke="#262b4a"/>
+    <text x="980" y="380" text-anchor="middle" fill="#f4f5fc">③ 删除（status=deleted）</text>
+    <text x="980" y="400" text-anchor="middle" font-size="10">仅到期/用户指令 · FTS 同步清 · 审计留痕</text>
+    <line x1="372" y1="391" x2="418" y2="391" stroke="#8f94b5" marker-end="url(#a2)"/>
+    <line x1="762" y1="391" x2="808" y2="391" stroke="#8f94b5" marker-end="url(#a2)"/>
+  </g>
+  <text x="30" y="452" fill="#616c9b" font-size="11">保护规则：confirmed=1 的记忆永不自动归档；最近 30 天被想起的不归档；访问 ≥10 次衰减减半</text>
+
+  <!-- 睡眠整理环 -->
+  <text x="30" y="500" fill="#aabaff" font-size="14" font-weight="600">睡眠整理（海马体 · 13 步 · checkpoint 断点续跑）</text>
+  <g font-size="11" fill="#aeb2cf">
+    <rect x="30" y="516" width="150" height="120" rx="8" fill="#151829" stroke="#262b4a"/>
+    <text x="105" y="540" text-anchor="middle" fill="#f4f5fc">① 快照 ② 汇总</text>
+    <text x="105" y="560" text-anchor="middle">③ LLM: 情景提取</text>
+    <text x="105" y="580" text-anchor="middle">④ 去重冲突 ⑤ 合并</text>
+    <text x="105" y="600" text-anchor="middle">⑥ LLM: 长期候选 ⑦ 关联</text>
+    <text x="105" y="620" text-anchor="middle">⑧ 日记索引</text>
+
+    <rect x="215" y="516" width="150" height="120" rx="8" fill="#151829" stroke="#262b4a"/>
+    <text x="290" y="540" text-anchor="middle" fill="#f4f5fc">⑨ LLM: 偏好提议</text>
+    <text x="290" y="560" text-anchor="middle">⑩ FTS 重建 ⑪ 遗忘标记</text>
+    <text x="290" y="580" text-anchor="middle">⑫ 报告 ⑬ 一致性提交</text>
+    <text x="290" y="606" text-anchor="middle" fill="#e9bd6c">失败重试 ≤3 → pause</text>
+    <text x="290" y="626" text-anchor="middle">不阻塞苏醒 · 原始数据不动</text>
+
+    <rect x="400" y="516" width="180" height="120" rx="8" fill="#1b2440" stroke="#3b3f78"/>
+    <text x="490" y="540" text-anchor="middle" fill="#b4b7fa">LLM 通道</text>
+    <text x="490" y="562" text-anchor="middle" font-size="10">sessionController.prompt</text>
+    <text x="490" y="580" text-anchor="middle" font-size="10">{mode:'queue'} 官方通道</text>
+    <text x="490" y="598" text-anchor="middle" font-size="10">（与 mood 日记同一条路）</text>
+    <text x="490" y="620" text-anchor="middle" font-size="10">模型用 mind_memory 工具落库</text>
+    <line x1="182" y1="576" x2="213" y2="576" stroke="#8f94b5" marker-end="url(#a2)"/>
+    <line x1="367" y1="576" x2="398" y2="576" stroke="#8f94b5" marker-end="url(#a2)"/>
+  </g>
+
+  <!-- 状态机 -->
+  <text x="640" y="500" fill="#aabaff" font-size="14" font-weight="600">睡眠状态机（桥接闸门实时读取）</text>
+  <g font-size="11">
+    <rect x="640" y="516" width="118" height="40" rx="20" fill="#12291f" stroke="#4fd1a5"/>
+    <text x="699" y="541" text-anchor="middle" fill="#4fd1a5">awake 清醒</text>
+    <rect x="790" y="516" width="130" height="40" rx="20" fill="#2a2313" stroke="#e9bd6c"/>
+    <text x="855" y="541" text-anchor="middle" fill="#e9bd6c">preparing 准备</text>
+    <rect x="952" y="516" width="130" height="40" rx="20" fill="#1b2440" stroke="#7b7ef0"/>
+    <text x="1017" y="541" text-anchor="middle" fill="#7b7ef0">sleeping 深睡</text>
+    <rect x="820" y="600" width="140" height="40" rx="20" fill="#20234a" stroke="#aabaff"/>
+    <text x="890" y="625" text-anchor="middle" fill="#aabaff">recovering 恢复</text>
+    <line x1="760" y1="536" x2="788" y2="536" stroke="#8f94b5" marker-end="url(#a2)"/>
+    <line x1="922" y1="536" x2="950" y2="536" stroke="#8f94b5" marker-end="url(#a2)"/>
+    <line x1="1017" y1="558" x2="950" y2="610" stroke="#8f94b5" marker-end="url(#a2)"/>
+    <line x1="878" y1="598" x2="730" y2="562" stroke="#8f94b5" marker-end="url(#a2)"/>
+    <text x="640" y="600" fill="#8f94b5" font-size="10">闸门位置：桥接 sendWakePromptV2 投递入口</text>
+    <text x="640" y="616" fill="#8f94b5" font-size="10">+ proactive 判定 ｜ 消息滞留未读，苏醒后按序快照交付</text>
+    <text x="640" y="632" fill="#8f94b5" font-size="10">状态持久化 state.json → 重启不丢锁</text>
+  </g>
+</svg>

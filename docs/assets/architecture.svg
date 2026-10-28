@@ -1,0 +1,121 @@
+<svg xmlns="http://www.w3.org/2000/svg" width="1180" height="760" viewBox="0 0 1180 760" font-family="'Microsoft YaHei',system-ui,sans-serif">
+  <defs>
+    <linearGradient id="hdr" x1="0" y1="0" x2="1" y2="0">
+      <stop offset="0" stop-color="#5457d6"/><stop offset="1" stop-color="#8b5fd6"/>
+    </linearGradient>
+    <marker id="arr" markerWidth="10" markerHeight="10" refX="8" refY="3" orient="auto">
+      <path d="M0,0 L9,3 L0,6 Z" fill="#8f94b5"/>
+    </marker>
+  </defs>
+
+  <rect width="1180" height="760" fill="#0d0f1c"/>
+  <rect x="0" y="0" width="1180" height="64" fill="url(#hdr)" opacity="0.25"/>
+  <text x="30" y="40" fill="#e6e8f5" font-size="22" font-weight="650">dsh-mind 总体架构（融合版）</text>
+  <text x="30" y="58" fill="#8f94b5" font-size="12">dsh-mood 0.14.16 引擎原样融合 ｜ SQLite 统一记忆 ｜ 睡眠状态机 ｜ 独立星图面板</text>
+
+  <!-- 外部层 -->
+  <rect x="30" y="90" width="240" height="86" rx="10" fill="#151829" stroke="#262b4a"/>
+  <text x="150" y="116" fill="#f4f5fc" font-size="14" text-anchor="middle" font-weight="600">QQ</text>
+  <text x="150" y="138" fill="#8f94b5" font-size="11" text-anchor="middle">消息收发</text>
+  <text x="150" y="156" fill="#8f94b5" font-size="11" text-anchor="middle">表情包 / 拍一拍</text>
+
+  <rect x="30" y="200" width="240" height="86" rx="10" fill="#151829" stroke="#262b4a"/>
+  <text x="150" y="226" fill="#f4f5fc" font-size="14" text-anchor="middle" font-weight="600">SnowLuma</text>
+  <text x="150" y="248" fill="#8f94b5" font-size="11" text-anchor="middle">OneBot 协议端 · 表现层</text>
+  <text x="150" y="266" fill="#8f94b5" font-size="11" text-anchor="middle">无自主应答（实测）</text>
+
+  <rect x="30" y="310" width="240" height="150" rx="10" fill="#151829" stroke="#262b4a"/>
+  <text x="150" y="336" fill="#f4f5fc" font-size="14" text-anchor="middle" font-weight="600">QQ Bridge（reserved2）</text>
+  <text x="150" y="358" fill="#8f94b5" font-size="11" text-anchor="middle">唤醒调度 · 拟人发送节奏</text>
+  <text x="150" y="376" fill="#8f94b5" font-size="11" text-anchor="middle">轻量记忆 · 表情包体系</text>
+  <rect x="48" y="392" width="204" height="30" rx="6" fill="#20234a" stroke="#3b3f78"/>
+  <text x="150" y="412" fill="#e9bd6c" font-size="11" text-anchor="middle">睡眠锁 ①②③（新增）</text>
+
+  <!-- DSH 大框 -->
+  <rect x="330" y="90" width="560" height="620" rx="12" fill="#10132200" stroke="#3b3f78" stroke-dasharray="6 4"/>
+  <text x="610" y="116" fill="#aabaff" font-size="14" text-anchor="middle" font-weight="600">DeepSeek Harness 0.2.1-rc.2（认知与决策中枢）</text>
+
+  <!-- mood 引擎区 -->
+  <rect x="352" y="136" width="256" height="238" rx="10" fill="#151829" stroke="#262b4a"/>
+  <text x="480" y="160" fill="#f4f5fc" font-size="13" text-anchor="middle" font-weight="600">vendor/mood（引擎原样继承）</text>
+  <text x="368" y="186" fill="#aeb2cf" font-size="11">· 情绪引擎：33 心情 · 周期判定 3~6h</text>
+  <text x="368" y="206" fill="#aeb2cf" font-size="11">· 关键词加减分 · 混合心情 · 痛苦硬线</text>
+  <text x="368" y="226" fill="#aeb2cf" font-size="11">· 心情日记（23:59 · AES-256-GCM）</text>
+  <text x="368" y="246" fill="#aeb2cf" font-size="11">· 经验卡（症状索引 · 程序性记忆）</text>
+  <text x="368" y="266" fill="#aeb2cf" font-size="11">· 品味库 → 偏好双轨之一</text>
+  <text x="368" y="286" fill="#aeb2cf" font-size="11">· 会话索引 sidx · 存储指针 store</text>
+  <rect x="368" y="304" width="224" height="26" rx="6" fill="#20234a"/>
+  <text x="480" y="322" fill="#8f94b5" font-size="10" text-anchor="middle">数据沿用原文件：心情/日记/经验卡零迁移</text>
+  <rect x="368" y="336" width="224" height="26" rx="6" fill="#2b1a24"/>
+  <text x="480" y="354" fill="#ff8f9b" font-size="10" text-anchor="middle">已排除：news / proactive（PRD）</text>
+
+  <!-- dsh-mind 新核心区 -->
+  <rect x="628" y="136" width="244" height="238" rx="10" fill="#151829" stroke="#262b4a"/>
+  <text x="750" y="160" fill="#f4f5fc" font-size="13" text-anchor="middle" font-weight="600">dsh-mind 新核心（Node 26）</text>
+  <text x="644" y="186" fill="#aeb2cf" font-size="11">· SQLite+WAL 统一记忆主库</text>
+  <text x="644" y="206" fill="#aeb2cf" font-size="11">· FTS5 + bigram 预分词（无向量）</text>
+  <text x="644" y="226" fill="#aeb2cf" font-size="11">· 写入管线：缓冲→摘要→实体→冲突</text>
+  <text x="644" y="246" fill="#aeb2cf" font-size="11">· 混合检索 .56/.14/.19/.11 + why</text>
+  <text x="644" y="266" fill="#aeb2cf" font-size="11">· 三级遗忘（降权/归档/删除）</text>
+  <text x="644" y="286" fill="#aeb2cf" font-size="11">· 审计链 audit_log · 版本链</text>
+  <rect x="644" y="304" width="212" height="26" rx="6" fill="#20234a"/>
+  <text x="750" y="322" fill="#8f94b5" font-size="10" text-anchor="middle">会话连续性：插件更换不重建会话</text>
+  <rect x="644" y="336" width="212" height="26" rx="6" fill="#20234a"/>
+  <text x="750" y="354" fill="#8f94b5" font-size="10" text-anchor="middle">注入协调器 = 唯一注入口（预算制）</text>
+
+  <!-- 注入协调与睡眠 -->
+  <rect x="352" y="398" width="520" height="88" rx="10" fill="#151829" stroke="#262b4a"/>
+  <text x="612" y="422" fill="#f4f5fc" font-size="13" text-anchor="middle" font-weight="600">注入协调器（唯一注入口 · 总预算 3500 字）</text>
+  <text x="612" y="444" fill="#8f94b5" font-size="11" text-anchor="middle">mood 各节记账 ← 剩余预算 → 【记忆 top-2】【心情一句】【经验卡索引】【偏好一句】</text>
+  <text x="612" y="464" fill="#8f94b5" font-size="11" text-anchor="middle">逐块 marker + 独立开关 + 字数可解释（面板可见）</text>
+
+  <rect x="352" y="502" width="520" height="94" rx="10" fill="#151829" stroke="#262b4a"/>
+  <text x="612" y="526" fill="#f4f5fc" font-size="13" text-anchor="middle" font-weight="600">睡眠状态机（awake → preparing → sleeping → recovering）</text>
+  <text x="612" y="548" fill="#8f94b5" font-size="11" text-anchor="middle">13 步海马体整理：快照→摘要→事实→去重→合并→索引→遗忘标记→报告→一致性提交</text>
+  <text x="612" y="568" fill="#8f94b5" font-size="11" text-anchor="middle">LLM 步走 sessionController.prompt（官方通道）· checkpoint 断点续跑 · 失败不阻塞苏醒</text>
+  <text x="612" y="586" fill="#e9bd6c" font-size="11" text-anchor="middle">状态持久化：重启不丢锁 · 桥接闸门实时读取</text>
+
+  <!-- 星图面板 -->
+  <rect x="920" y="136" width="230" height="460" rx="10" fill="#151829" stroke="#262b4a"/>
+  <text x="1035" y="162" fill="#f4f5fc" font-size="13" text-anchor="middle" font-weight="600">独立管理面板</text>
+  <text x="1035" y="180" fill="#8f94b5" font-size="10" text-anchor="middle">/dsh-mind-api/panel（不属于 DSH 设置）</text>
+  <rect x="936" y="194" width="198" height="150" rx="8" fill="#0d0f1c" stroke="#262b4a"/>
+  <text x="1035" y="240" fill="#8fd3f4" font-size="11" text-anchor="middle">✦ 记忆星图（canvas 力导向）</text>
+  <text x="1035" y="262" fill="#8f94b5" font-size="10" text-anchor="middle">记忆=星点 · 实体=方块</text>
+  <text x="1035" y="280" fill="#8f94b5" font-size="10" text-anchor="middle">亮度=遗忘权重 · 连线=关联</text>
+  <text x="1035" y="298" fill="#8f94b5" font-size="10" text-anchor="middle">点击=详情/来源/置信度</text>
+  <text x="1035" y="318" fill="#aeb2cf" font-size="11" text-anchor="middle">治理：纠正 / 合并 / 三级遗忘</text>
+  <text x="1035" y="338" fill="#aeb2cf" font-size="11" text-anchor="middle">睡眠：进入 / 唤醒 / 报表</text>
+  <text x="1035" y="358" fill="#aeb2cf" font-size="11" text-anchor="middle">预算账本 · 审计流水</text>
+  <line x1="890" y1="254" x2="918" y2="254" stroke="#8f94b5" marker-end="url(#arr)"/>
+
+  <!-- 连线 -->
+  <line x1="270" y1="133" x2="330" y2="133" stroke="#8f94b5" marker-end="url(#arr)"/>
+  <line x1="270" y1="243" x2="330" y2="243" stroke="#8f94b5" marker-end="url(#arr)"/>
+  <line x1="270" y1="385" x2="330" y2="385" stroke="#8f94b5" marker-end="url(#arr)"/>
+  <text x="292" y="126" fill="#8f94b5" font-size="9" text-anchor="middle">消息</text>
+  <text x="292" y="236" fill="#8f94b5" font-size="9" text-anchor="middle">协议</text>
+  <text x="292" y="378" fill="#8f94b5" font-size="9" text-anchor="middle">唤醒/发送</text>
+
+  <line x1="480" y1="374" x2="480" y2="396" stroke="#8f94b5" marker-end="url(#arr)"/>
+  <line x1="750" y1="374" x2="750" y2="396" stroke="#8f94b5" marker-end="url(#arr)"/>
+  <line x1="612" y1="486" x2="612" y2="500" stroke="#8f94b5" marker-end="url(#arr)"/>
+  <line x1="872" y1="430" x2="918" y2="430" stroke="#8f94b5" marker-end="url(#arr)"/>
+  <text x="894" y="422" fill="#8f94b5" font-size="9" text-anchor="middle">HTTP</text>
+
+  <line x1="480" y1="596" x2="480" y2="640" stroke="#8f94b5" marker-end="url(#arr)"/>
+  <line x1="742" y1="596" x2="742" y2="640" stroke="#8f94b5" marker-end="url(#arr)"/>
+
+  <!-- 数据层 -->
+  <rect x="352" y="644" width="240" height="56" rx="10" fill="#151829" stroke="#262b4a"/>
+  <text x="472" y="668" fill="#f4f5fc" font-size="12" text-anchor="middle" font-weight="600">mood 原数据文件（原地沿用）</text>
+  <text x="472" y="688" fill="#8f94b5" font-size="10" text-anchor="middle">dsh-mood.json / diary(.key) / procedures/ / taste</text>
+
+  <rect x="632" y="644" width="240" height="56" rx="10" fill="#151829" stroke="#262b4a"/>
+  <text x="752" y="668" fill="#f4f5fc" font-size="12" text-anchor="middle" font-weight="600">SQLite memory.db（新）</text>
+  <text x="752" y="688" fill="#8f94b5" font-size="10" text-anchor="middle">memories / FTS / entities / relations / audit</text>
+
+  <!-- 底部原则 -->
+  <text x="30" y="672" fill="#8f94b5" font-size="11">三条原则：先有遗忘再谈记住 · 人格和记忆解耦 · 每个增强都能一键关</text>
+  <text x="30" y="694" fill="#616c9b" font-size="10">会话连续性：sessionPolicy = [模式, preset 家族, owner]，插件更换不改指纹 → 夏凛的上下文不重开、不重建</text>
+</svg>

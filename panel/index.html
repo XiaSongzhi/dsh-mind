@@ -1,0 +1,187 @@
+<!doctype html>
+<html lang="zh-CN">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>dsh-mind 记忆星图</title>
+<style>
+:root{--bg:#0d0f1c;--surface:#151829;--border:#262b4a;--text:#e6e8f5;--muted:#8f94b5;--accent:#7b7ef0;--ok:#4fd1a5;--warn:#e9bd6c;--err:#ff8f9b}
+*{box-sizing:border-box}body{margin:0;font-family:system-ui,"Microsoft YaHei",sans-serif;background:var(--bg);color:var(--text)}
+header{display:flex;align-items:center;justify-content:space-between;padding:14px 20px;border-bottom:1px solid var(--border)}
+h1{font-size:17px;margin:0}.k{color:var(--muted);font-size:12px}
+.wrap{display:grid;grid-template-columns:1fr 320px;gap:14px;padding:14px 20px;height:calc(100vh - 62px)}
+#sky{position:relative;border:1px solid var(--border);border-radius:12px;background:radial-gradient(ellipse at 30% 20%,#131735 0%,var(--bg) 70%);overflow:hidden}
+canvas{display:block;width:100%;height:100%}
+.side{display:flex;flex-direction:column;gap:12px;overflow:auto}
+.card{background:var(--surface);border:1px solid var(--border);border-radius:12px;padding:14px}
+button{background:var(--accent);color:#fff;border:0;border-radius:8px;padding:7px 12px;cursor:pointer;font-size:12px}
+button.ghost{background:transparent;border:1px solid var(--border);color:var(--text)}
+button.danger{background:transparent;border:1px solid #4b2b3c;color:var(--err)}
+input,select{background:#1a1e33;border:1px solid #31365e;border-radius:8px;color:var(--text);padding:7px;width:100%}
+.m{color:var(--muted);font-size:12px;line-height:1.7}
+.legend{display:flex;gap:10px;flex-wrap:wrap;font-size:11px;color:var(--muted)}
+.legend i{display:inline-block;width:9px;height:9px;border-radius:50%;margin-right:4px}
+#drawer{position:fixed;right:14px;top:76px;width:360px;max-height:70vh;overflow:auto;display:none;
+ background:var(--surface);border:1px solid var(--border);border-radius:12px;padding:16px;box-shadow:0 18px 50px #000a}
+#drawer h3{margin:0 0 8px;font-size:14px}#drawer .row{margin:8px 0;font-size:13px;line-height:1.7}
+.tag{display:inline-block;padding:1px 8px;border-radius:999px;font-size:11px;background:#20234a;color:#b4b7fa;margin-right:4px}
+.sleepbtns{display:flex;gap:8px;flex-wrap:wrap}
+</style>
+</head>
+<body>
+<header>
+  <h1>dsh-mind 记忆星图 <span class="k">· 独立管理页（不属于 DSH 设置）</span></h1>
+  <div><span class="k" id="hdr">加载中…</span></div>
+</header>
+<div class="wrap">
+  <div id="sky"><canvas id="cv"></canvas></div>
+  <div class="side">
+    <div class="card"><b>睡眠</b>
+      <div class="m" id="sleepState">—</div>
+      <div class="sleepbtns" style="margin-top:8px">
+        <button onclick="sleepEnter()">进入睡眠整理</button>
+        <button class="ghost" onclick="sleepWake()">唤醒</button>
+      </div>
+      <div class="m" id="sleepReport" style="margin-top:6px"></div>
+    </div>
+    <div class="card"><b>筛选</b>
+      <div class="m" style="margin:6px 0">类型</div>
+      <div class="legend" id="kindBox"></div>
+      <div style="margin-top:8px"><input id="ent" placeholder="按实体/关键词过滤后回车" onkeydown="if(event.key==='Enter')loadGraph()"></div>
+      <div style="margin-top:8px"><button class="ghost" onclick="loadGraph()">应用</button></div>
+    </div>
+    <div class="card"><b>治理审计（最近）</b><div class="m" id="audit">—</div></div>
+    <div class="card"><b>说明</b><div class="m">节点=记忆（大小=重要性/访问频度，亮度=遗忘权重 decay），方块=实体；连线=实体/共现/情绪关联。点击节点查看与治理。数据全部实时来自 SQLite 主库。</div></div>
+  </div>
+</div>
+<div id="drawer"></div>
+<script>
+const KIND_COLOR = { episode:'#7b7ef0', fact:'#4fd1a5', reflection:'#e9bd6c', skill:'#f2a35e', lesson:'#8fd3f4', procedural:'#d98fd3', emotion_event:'#ff8f9b', media:'#9aa0c4' }
+let GRAPH = null, NODES = [], stopSim = null, selected = null
+
+async function jf(u, o){ const r = await fetch(u, Object.assign({headers:{'x-dsh-mind':'1'}}, o||{})); return r.json() }
+
+async function loadState(){
+  const r = await jf('/dsh-mind-api/state')
+  document.getElementById('hdr').textContent = `记忆 ${r.stats.total} · 归档 ${r.stats.archived} · 实体 ${r.stats.entities} · 冲突 ${r.stats.conflictsOpen} · 注入${r.inject.enabled?'开':'关'}`
+  document.getElementById('sleepState').innerHTML =
+    `状态：<b>${r.sleep.state}</b>｜原因：${r.sleep.reason||'—'}<br>checkpoint：${r.sleep.checkpoint?('#'+r.sleep.checkpoint.step+' '+r.sleep.checkpoint.note):'—'}`
+  document.getElementById('sleepReport').textContent = r.sleep.lastReport ? r.sleep.lastReport.note : '（尚无整理报告）'
+}
+async function sleepEnter(){ await jf('/dsh-mind-api/sleep/enter',{method:'POST',body:'{}'}); loadState() }
+async function sleepWake(){ await jf('/dsh-mind-api/sleep/wake',{method:'POST',body:'{}'}); loadState() }
+async function loadAudit(){ const r = await jf('/dsh-mind-api/audit');
+  document.getElementById('audit').innerHTML = (r.items||[]).slice(0,8).map(a=>`<div>[${a.action}] ${String(a.target).slice(0,26)}</div>`).join('')||'—' }
+
+async function loadGraph(){
+  const ent = document.getElementById('ent').value.trim()
+  const r = await jf('/dsh-mind-api/graph?limit=260' + (ent ? '&scope=private' : ''))
+  GRAPH = r
+  // 实体名过滤：不匹配的节点先藏起来
+  const kinds = [...document.querySelectorAll('#kindBox input:checked')].map(x=>x.value)
+  let nodes = r.nodes.filter(n => !kinds.length || kinds.includes(n.kind) || n.group === 'entity')
+  if (ent) nodes = nodes.filter(n => (n.label||'').includes(ent) || r.edges.some(e =>
+    (e.src===n.id||e.dst===n.id) && (r.nodes.find(x=>x.id===e.src)?.label||'').includes(ent)))
+  startSim(nodes, r.edges.filter(e => nodes.some(n=>n.id===e.src) && nodes.some(n=>n.id===e.dst)))
+  const kb = document.getElementById('kindBox')
+  if (!kb.dataset.built){
+    kb.innerHTML = Object.entries(KIND_COLOR).map(([k,c])=>`<label style="cursor:pointer"><input type="checkbox" value="${k}" checked style="accent-color:${c}"><i style="background:${c}"></i>${k}</label>`).join('')
+    kb.dataset.built = '1'
+  }
+  loadAudit()
+}
+
+function startSim(nodes, edges){
+  if (stopSim) stopSim()
+  const cv = document.getElementById('cv'), box = document.getElementById('sky')
+  cv.width = box.clientWidth; cv.height = box.clientHeight
+  const W = cv.width, H = cv.height
+  nodes.forEach((n,i)=>{ n.x = W/2 + Math.cos(i*2.4)*Math.min(W,H)/3.2; n.y = H/2 + Math.sin(i*2.4)*Math.min(W,H)/3.2; n.vx=0; n.vy=0 })
+  const idx = new Map(nodes.map(n=>[n.id,n]))
+  const es = edges.map(e=>({a:idx.get(e.src), b:idx.get(e.dst), w:e.weight||1})).filter(e=>e.a&&e.b)
+
+  function tick(){
+    // 斥力 + 连线弹力 + 向心；简单 O(n²)——个人规模（数百节点）足够
+    for (let i=0;i<nodes.length;i++) for (let j=i+1;j<nodes.length;j++){
+      const a=nodes[i], b=nodes[j], dx=b.x-a.x, dy=b.y-a.y, d2=dx*dx+dy*dy+1, f=2600/d2
+      const fx=dx*f, fy=dy*f; a.vx-=fx; a.vy-=fy; b.vx+=fx; b.vy+=fy
+    }
+    for (const e of es){
+      const dx=e.b.x-e.a.x, dy=e.b.y-e.a.y, d=Math.hypot(dx,dy)||1, f=(d-110)*0.02*e.w
+      e.a.vx+=dx*f; e.a.vy+=dy*f; e.b.vx-=dx*f; e.b.vy-=dy*f
+    }
+    for (const n of nodes){
+      n.vx += (W/2-n.x)*0.0022; n.vy += (H/2-n.y)*0.0022
+      n.vx*=0.86; n.vy*=0.86; n.x+=n.vx; n.y+=n.vy
+      n.x = Math.max(20, Math.min(W-20, n.x)); n.y = Math.max(20, Math.min(H-20, n.y))
+    }
+  }
+  function draw(){
+    const g = cv.getContext('2d')
+    g.clearRect(0,0,W,H)
+    g.strokeStyle = '#2a2f52'
+    for (const e of es){
+      g.lineWidth = Math.min(3, 0.6 + (e.w||1)*0.4)
+      g.beginPath(); g.moveTo(e.a.x,e.a.y); g.lineTo(e.b.x,e.b.y); g.stroke()
+    }
+    for (const n of nodes){
+      const r = n.group==='entity' ? 4 + n.size*7 : 5 + n.size*9
+      const color = n.group==='entity' ? '#8fd3f4' : (KIND_COLOR[n.kind] || '#9aa0c4')
+      g.globalAlpha = n.status==='archived' ? 0.35 : Math.max(0.25, n.decay ?? 1)
+      g.fillStyle = color
+      g.beginPath(); g.arc(n.x, n.y, r, 0, 7); g.fill()
+      if (n === selected){ g.globalAlpha=1; g.strokeStyle='#fff'; g.lineWidth=2; g.beginPath(); g.arc(n.x,n.y,r+4,0,7); g.stroke() }
+      if (r > 7){ g.globalAlpha = 0.85; g.fillStyle='#c9cdf0'; g.font='10px system-ui'; g.fillText((n.label||'').slice(0,14), n.x+r+3, n.y+3) }
+      g.globalAlpha = 1
+    }
+  }
+  let frame = 0
+  const loop = () => { tick(); if (frame++ < 420) draw(); else if (frame % 6 === 0) draw(); raf = requestAnimationFrame(loop) }
+  let raf = requestAnimationFrame(loop)
+  cv.onclick = (ev) => {
+    const rect = cv.getBoundingClientRect(), x = ev.clientX-rect.left, y = ev.clientY-rect.top
+    selected = nodes.find(n => Math.hypot(n.x-x, n.y-y) < 12) || null
+    if (selected) showDrawer(selected); else document.getElementById('drawer').style.display='none'
+  }
+  stopSim = () => cancelAnimationFrame(raf)
+}
+
+function showDrawer(n){
+  const d = document.getElementById('drawer')
+  d.style.display = 'block'
+  if (n.group === 'entity'){
+    d.innerHTML = `<h3>实体：${n.label}</h3><div class="row k">类型 ${n.kind} · 被提及权重见连线</div>
+      <div class="row"><button class="ghost" onclick="closeDrawer()">关闭</button></div>`
+    return
+  }
+  const full = (GRAPH.nodes.find(x=>x.id===n.id) || n)
+  d.innerHTML = `<h3>${n.kind} 记忆</h3>
+    <div class="tag">score 内部权重 ${n.size}</div>${n.status==='archived'?'<span class="tag">已归档</span>':''}
+    <div class="row"><b>${full.label || ''}</b></div>
+    <div class="row k">id: ${n.id} · 创建 ${new Date(n.ts||Date.now()).toLocaleString()}</div>
+    <div class="row"><b>纠正</b><input id="fixText" placeholder="改成什么？（留空=只降权）"><button onclick="fix()">提交纠正</button></div>
+    <div class="row"><b>遗忘</b>
+      <button class="ghost" onclick="forget(1)">降权</button>
+      <button class="ghost" onclick="forget(2)">归档</button>
+      <button class="danger" onclick="forget(3)">删除</button></div>
+    <div class="row"><button class="ghost" onclick="closeDrawer()">关闭</button></div>`
+  d.dataset.id = n.id
+}
+function closeDrawer(){ document.getElementById('drawer').style.display='none' }
+async function fix(){
+  const id = document.getElementById('drawer').dataset.id
+  const text = document.getElementById('fixText').value
+  await jf('/dsh-mind-api/memory/correct', {method:'POST', body: JSON.stringify({id, text, reason:'面板纠正'})})
+  closeDrawer(); loadGraph(); loadAudit()
+}
+async function forget(tier){
+  const id = document.getElementById('drawer').dataset.id
+  await jf('/dsh-mind-api/memory/forget', {method:'POST', body: JSON.stringify({id, tier, reason:'面板治理'})})
+  closeDrawer(); loadGraph(); loadAudit()
+}
+
+loadState(); loadGraph(); setInterval(loadState, 30000)
+window.addEventListener('resize', () => loadGraph())
+</script>
+</body>
+</html>

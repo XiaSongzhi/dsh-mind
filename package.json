@@ -1,0 +1,12 @@
+{
+  "name": "dsh-mind",
+  "version": "0.1.0-alpha.1",
+  "description": "统一记忆/情绪/睡眠插件（dsh-mood 0.14.16 融合分叉）：SQLite 主库 + FTS5 bigram 检索 + 注入协调器 + 睡眠状态机 + 独立管理页",
+  "type": "module",
+  "main": "index.js",
+  "license": "MIT",
+  "engines": { "node": ">=24" },
+  "dsh": {
+    "bundle": { "patch": "./cordis.patch.yml" }
+  }
+}
