@@ -144,8 +144,8 @@ export DSH_MIND_DATA_DIR=/path/to/data
 |---|---|---|
 | [Three.js](https://threejs.org) 0.169 | 星图渲染 | MIT |
 | [dsh-mood](https://github.com/) | 动态情绪引擎（33 维情绪 / 日记 / 经验卡 / 品味），`vendor/mood/` 14 个模块 | MIT |
-| [qq-bridge](https://github.com/) | 消息桥接，提供角色卡与令牌账本接口（可选） | MIT |
-| [SnowLuma](https://github.com/) | 协议端，桥接状态上报（可选） | MIT |
+
+两个组件均为 MIT，与本项目的 MIT 许可完全兼容，可安全内联再分发。
 
 ---
 
@@ -264,9 +264,17 @@ score = 关键词覆盖 × 0.5 + importance × 0.3 + 新鲜度 × 0.2 + decay �
 
 核心（记忆 + 睡眠 + 星图 + 记忆治理）独立可跑。以下页面需要外部开源服务，未配置时显示明确的「未连接」，**不影响其他功能**。
 
-### 动态情绪（dsh-mood）
+### 动态情绪（dsh-mood）—— MIT
 
-心情 / 日记 / 经验卡 / 品味 四页依赖 [dsh-mood](https://github.com/)。本仓库 `vendor/mood/` 已内置其 14 个模块并融合运行，接口挂在 `/dsh-mood-api/*`。
+心情 / 日记 / 经验卡 / 品味 四页依赖 [dsh-mood](https://github.com/)。本仓库 `vendor/mood/` 已内置其 14 个模块（约 535 KB）并融合运行，接口挂在 `/dsh-mood-api/*`。
+
+dsh-mood 是 MIT 许可，因此可以安全地 vendor 进来再分发。本项目对它做了三处修改（MIT 允许，保留版权声明即可）：
+
+1. 情绪引擎的「疲惫」维度改为由睡眠系统**单向写入**，其余 32 维仍由 dsh-mood 自身演化
+2. 混合态的主导改为跟随 `current`（原来取最高分，会与切换判定结果矛盾），新增 `blendAround()`
+3. 心跳加入分值偏离检查 `transitionIfSkewed()`，避免「没人说话就永不切换」
+
+改动只在 `vendor/mood/index.js`，其余 13 个模块未动。
 
 情绪数据落盘在 `$DSH_HOME/dsh-mood.json`，核心字段：
 
@@ -276,21 +284,34 @@ score = 关键词覆盖 × 0.5 + importance × 0.3 + 新鲜度 × 0.2 + decay �
 
 **「疲惫」维度由本插件的睡眠系统单向写入**，其余 32 维由 dsh-mood 自己演化。
 
-### 桥接与协议端（qq-bridge / SnowLuma）
+### 外部管理服务（可选）
 
-角色卡 / 消费 两页需要 [qq-bridge](https://github.com/) 的控制台。配置：
+「角色卡」与「消费」两页用于读取**外部管理服务**提供的人设文件与令牌用量。这两页不依赖本仓库内的任何代码，只需在环境变量里填入对方服务的控制台地址与令牌。
+
+配置方式：
 
 ```bash
-export QQ_BRIDGE_CONFIG=/path/to/qq-bridge/config.json   # 含 consolePort 与 consoleToken
-# 或分开
-export QQ_BRIDGE_PORT=3100
-export QQ_BRIDGE_TOKEN=<token>
-export QQ_BRIDGE_DIR=/path/to/qq-bridge                  # 角色卡目录探测用
+export EXTERNAL_CONSOLE_CONFIG=/path/to/console-config.json   # 含端口与令牌
+# 或分开配
+export EXTERNAL_CONSOLE_PORT=3100
+export EXTERNAL_CONSOLE_TOKEN=<token>
+export EXTERNAL_CONSOLE_DIR=/path/to/workspace                # 人设文件目录，用于名称探测
 ```
 
-浏览器直连桥接端口会被 CORS 拦，插件内置白名单代理（`/dsh-mind-api/bridge/*` → `/api/*`），转发 query 参数。
+插件会以白名单代理方式（`/dsh-mind-api/bridge/*` → 上游 `/api/*`）转发下列只读请求：
 
----
+| 上游路径 | 用途 |
+|---|---|
+| `/api/status` | 系统页显示对方运行状态与最近活动 |
+| `/api/roles` | 角色卡页列出人设文件 |
+| `/api/roles/content` | 读取指定角色卡正文 |
+| `/api/tokens/summary` / `recent` | 消费页显示令牌用量 |
+
+由宿主机转发是因为浏览器直连对方控制台端口会被 CORS 拦截。
+
+**未配置时**，这两页显示明确的「未接入」状态，其余功能完全不受影响。
+
+> 外部服务由第三方提供，其许可与使用条件由各自项目规定。本仓库不含其任何源码或二进制，也不对其做任何修改。接入前请自行阅读并遵守对方的许可条款。
 
 ## 设置页与全部参数
 
@@ -421,7 +442,7 @@ GET  /graph-settings      只取星图参数（面板打开星图时拉）
 | `DSH_MIND_DATA_DIR` / `DSH_MIND_HOME` | 数据目录 |
 | `DSH_MIND_ROLE_NAME` | 角色名（覆盖自动探测） |
 | `MEMORY_SESSION_CWD_FILTER` | 整理器允许的会话 cwd 片段（逗号分隔）。不设 = 接受任意非空 cwd |
-| `QQ_BRIDGE_CONFIG` / `PORT` / `TOKEN` / `DIR` | 桥接集成 |
+| `EXTERNAL_CONSOLE_CONFIG` / `PORT` / `TOKEN` / `DIR` | 外部服务集成 |
 
 ---
 
@@ -588,8 +609,30 @@ docs/assets/              README 图片
 
 ## 许可
 
-MIT。第三方许可见 [LICENSE](LICENSE)。
+**MIT** —— 可自由使用、修改、再分发，包括商业用途，只需保留版权声明。
 
-- [Three.js](https://threejs.org) — MIT
-- [dsh-mood](https://github.com/) — MIT（`vendor/mood/`）
-- [qq-bridge](https://github.com/) / [SnowLuma](https://github.com/) — MIT（可选集成）
+| 你想做什么 | 是否允许 |
+|---|---|
+| 下载、安装、使用 | ✅ 可以 |
+| 阅读源码、学习 | ✅ 可以 |
+| 修改代码 | ✅ 可以 |
+| fork 到自己的仓库、发布修改版 | ✅ 可以 |
+| **商业使用** | ✅ **可以** |
+| 私有化改造 | ✅ 可以 |
+
+唯一要求：保留 `LICENSE` 里的版权声明与许可文本。
+
+完整条款见 [LICENSE](LICENSE)。
+
+---
+
+## 依赖组件的许可
+
+本仓库内联的第三方代码同样均为 MIT，与本项目许可完全兼容：
+
+| 组件 | 许可 | 位置 |
+|---|---|---|
+| Three.js 0.169 | MIT | `panel/vendor/` |
+| dsh-mood 0.14.16 | MIT | `vendor/mood/` |
+
+构建环境采用qq-bridge+snowluma  其他架构不保证支持
