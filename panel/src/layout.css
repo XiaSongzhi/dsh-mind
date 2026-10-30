@@ -1,0 +1,589 @@
+/* ═══════════════════════════════════════════════════════════════════
+   布局：AppShell / TopNavigation / View / SkyStage / SkyControls
+   ═══════════════════════════════════════════════════════════════════ */
+
+.app-shell {
+  display: flex;
+  flex-direction: column;
+  height: 100%;
+  background: var(--bg-base);
+}
+
+/* ─────────── 顶栏 ─────────── */
+.topnav {
+  position: relative;
+  z-index: var(--z-panel);
+  display: flex;
+  align-items: center;
+  gap: var(--sp-5);
+  height: var(--topbar-h);
+  padding: 0 var(--sp-5);
+  flex-shrink: 0;
+  background: linear-gradient(180deg, rgba(13, 17, 28, 0.96), rgba(8, 11, 22, 0.92));
+  backdrop-filter: blur(16px);
+  -webkit-backdrop-filter: blur(16px);
+  border-bottom: 1px solid var(--line-subtle);
+}
+
+/* 品牌 */
+.brand {
+  display: flex;
+  align-items: center;
+  gap: var(--sp-3);
+  flex-shrink: 0;
+}
+.brand-mark {
+  width: 30px;
+  height: 30px;
+  border-radius: 9px;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  font-size: 14px;
+  font-weight: var(--fw-bold);
+  color: #fff;
+  background: linear-gradient(140deg, #4A63E8 0%, #8B6BF0 55%, #A77BFF 100%);
+  box-shadow: 0 2px 12px rgba(122, 107, 240, 0.30);
+}
+.brand-text { display: flex; flex-direction: column; line-height: 1.25; }
+.brand-name {
+  font-size: var(--fs-md);
+  font-weight: var(--fw-semibold);
+  letter-spacing: 0.04em;
+  color: var(--text-primary);
+}
+.brand-sub {
+  font-size: var(--fs-xs);
+  color: var(--text-tertiary);
+  letter-spacing: 0.06em;
+}
+
+/* 统计 */
+.stats {
+  display: flex;
+  gap: 1px;
+  flex-shrink: 0;
+  align-items: stretch;
+}
+.stat {
+  display: flex;
+  flex-direction: column;
+  justify-content: center;
+  gap: 1px;
+  padding: 2px var(--sp-3);
+  border-radius: var(--r-xs);
+  transition: background var(--dur-base) var(--ease-out);
+  min-width: 48px;
+}
+.stat:hover { background: rgba(255, 255, 255, 0.03); }
+.stat-value {
+  font-size: var(--fs-md);
+  font-weight: var(--fw-semibold);
+  line-height: 1.2;
+  color: var(--text-primary);
+}
+.stat-label {
+  font-size: var(--fs-xs);
+  color: var(--text-tertiary);
+  letter-spacing: 0.02em;
+}
+
+/* 导航 */
+.nav {
+  display: flex;
+  gap: 2px;
+  margin-left: auto;
+  padding: 3px;
+  border-radius: var(--r-sm);
+  background: rgba(17, 22, 36, 0.64);
+  overflow-x: auto;
+  scrollbar-width: none;
+  flex-shrink: 1;
+  min-width: 0;
+}
+.nav::-webkit-scrollbar { display: none; }
+
+.nav-btn {
+  position: relative;
+  height: 28px;
+  padding: 0 var(--sp-3);
+  border-radius: var(--r-xs);
+  font-size: var(--fs-sm);
+  font-weight: var(--fw-medium);
+  color: var(--text-tertiary);
+  white-space: nowrap;
+  flex-shrink: 0;
+  transition: color var(--dur-base) var(--ease-out),
+              background var(--dur-base) var(--ease-out);
+}
+.nav-btn:hover { color: var(--text-secondary); background: rgba(255, 255, 255, 0.04); }
+.nav-btn.active {
+  color: #fff;
+  background: linear-gradient(135deg, rgba(111, 134, 255, 0.85), rgba(167, 123, 255, 0.75));
+  box-shadow: 0 2px 10px rgba(122, 107, 240, 0.26);
+}
+
+/* ─────────── 视图容器 ─────────── */
+.viewport {
+  position: relative;
+  flex: 1;
+  overflow: hidden;
+  min-height: 0;
+}
+
+.view {
+  position: absolute;
+  inset: 0;
+  opacity: 0;
+  visibility: hidden;
+  transform: translateY(6px);
+  transition: opacity var(--dur-page) var(--ease-out),
+              transform var(--dur-page) var(--ease-out),
+              visibility var(--dur-page);
+  overflow-y: auto;
+  overflow-x: hidden;
+}
+.view.active {
+  opacity: 1;
+  visibility: visible;
+  transform: none;
+}
+
+/* 普通页面容器 */
+.page {
+  max-width: 1280px;
+  margin: 0 auto;
+  padding: var(--sp-6) var(--sp-6) var(--sp-10);
+}
+
+.page-heading {
+  display: flex;
+  align-items: baseline;
+  gap: var(--sp-3);
+  margin-bottom: var(--sp-5);
+  flex-wrap: wrap;
+}
+.page-heading h2 {
+  margin: 0;
+  font-size: var(--fs-xl);
+  font-weight: var(--fw-semibold);
+  letter-spacing: 0.01em;
+  color: var(--text-primary);
+}
+.page-heading .caption {
+  font-size: var(--fs-xs);
+  color: var(--text-tertiary);
+}
+
+/* 网格 */
+.grid { display: grid; gap: var(--sp-4); }
+.grid-2 { grid-template-columns: repeat(auto-fit, minmax(320px, 1fr)); }
+.grid-3 { grid-template-columns: repeat(3, minmax(0, 1fr)); }
+.grid-full { grid-column: 1 / -1; }
+
+/* ═══════════════ 星图舞台 ═══════════════ */
+.sky-stage {
+  position: absolute;
+  inset: 0;
+  overflow: hidden;
+  background: radial-gradient(ellipse 120% 80% at 50% 45%, #0A0E1C 0%, #05070D 55%, #030408 100%);
+}
+
+#sky-canvas {
+  position: absolute;
+  inset: 0;
+  display: block;
+  width: 100%;
+  height: 100%;
+  touch-action: none;
+  cursor: grab;
+}
+#sky-canvas.dragging { cursor: grabbing; }
+
+/* 标签层（HTML overlay，避免 WebGL 内文字模糊） */
+.sky-labels {
+  position: absolute;
+  inset: 0;
+  pointer-events: none;
+  overflow: hidden;
+  z-index: 2;
+}
+.sky-label {
+  position: absolute;
+  transform: translate(-50%, -50%);
+  pointer-events: none;
+  white-space: nowrap;
+  font-size: var(--fs-xs);
+  font-weight: var(--fw-medium);
+  letter-spacing: 0.02em;
+  padding: 2px 6px;
+  border-radius: var(--r-xs);
+  background: rgba(5, 7, 13, 0.55);
+  backdrop-filter: blur(3px);
+  -webkit-backdrop-filter: blur(3px);
+  opacity: 0;
+  transition: opacity var(--dur-base) var(--ease-out);
+  will-change: transform, opacity;
+}
+.sky-label.visible { opacity: 1; }
+
+/* 星团标签：更大更亮 */
+.sky-label.cluster {
+  font-size: var(--fs-sm);
+  font-weight: var(--fw-semibold);
+  padding: 3px 9px;
+  background: rgba(5, 7, 13, 0.68);
+  letter-spacing: 0.04em;
+}
+/* 记忆标签：小字，低存在 */
+.sky-label.memory {
+  font-size: 10px;
+  color: var(--text-tertiary);
+  background: rgba(5, 7, 13, 0.48);
+  max-width: 170px;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+
+/* ─── 星图：右下悬浮控制面板 ─── */
+.sky-panel {
+  position: absolute;
+  top: var(--sp-4);
+  right: var(--sp-4);
+  width: 232px;
+  display: flex;
+  flex-direction: column;
+  gap: var(--sp-3);
+  z-index: var(--z-panel);
+  max-height: calc(100% - var(--sp-8));
+  overflow-y: auto;
+  scrollbar-width: none;
+  padding-right: 2px;
+}
+.sky-panel::-webkit-scrollbar { display: none; }
+
+/* 抽屉打开时，控制面板左移让位（避免被完全遮挡） */
+.sky-stage.has-drawer .sky-panel {
+  right: calc(min(400px, 92vw) + var(--sp-4));
+}
+@media (max-width: 900px) {
+  .sky-stage.has-drawer .sky-panel { right: var(--sp-4); }
+}
+
+.sky-panel .panel-section {
+  background: rgba(11, 15, 26, 0.78);
+  backdrop-filter: blur(20px) saturate(1.4);
+  -webkit-backdrop-filter: blur(20px) saturate(1.4);
+  border: 1px solid var(--line-subtle);
+  border-radius: var(--r-md);
+  padding: var(--sp-3);
+  box-shadow: var(--shadow-md);
+}
+.sky-panel .panel-title {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  font-size: var(--fs-xs);
+  font-weight: var(--fw-medium);
+  color: var(--text-tertiary);
+  letter-spacing: 0.06em;
+  margin-bottom: var(--sp-2);
+  text-transform: uppercase;
+}
+
+/* 最近新增列表 */
+.recent-list {
+  display: flex;
+  flex-direction: column;
+  gap: 1px;
+  max-height: 190px;
+  overflow-y: auto;
+  margin: 0 calc(var(--sp-1) * -1);
+}
+.recent-item {
+  display: flex;
+  align-items: center;
+  gap: 7px;
+  padding: 4px var(--sp-1);
+  border-radius: var(--r-xs);
+  cursor: pointer;
+  transition: background var(--dur-base) var(--ease-out);
+}
+.recent-item:hover { background: rgba(111, 134, 255, 0.10); }
+.recent-item .dot {
+  width: 5px; height: 5px; border-radius: 50%; flex-shrink: 0;
+}
+.recent-item .txt {
+  flex: 1;
+  font-size: var(--fs-xs);
+  color: var(--text-tertiary);
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+  transition: color var(--dur-base) var(--ease-out);
+}
+.recent-item:hover .txt { color: var(--text-secondary); }
+
+/* 开关组 */
+.toggle-list { display: flex; flex-direction: column; gap: 7px; }
+.toggle-list .toggle { justify-content: space-between; }
+.toggle-list .toggle-label { flex: 1; }
+
+/* ─── 星图：左下悬浮控制条（默认收起） ─── */
+.sky-dock {
+  position: absolute;
+  left: var(--sp-4);
+  bottom: var(--sp-4);
+  z-index: var(--z-panel);
+  display: flex;
+  align-items: center;
+  gap: var(--sp-1);
+  padding: 5px;
+  border-radius: var(--r-pill);
+  background: rgba(11, 15, 26, 0.72);
+  backdrop-filter: blur(18px);
+  -webkit-backdrop-filter: blur(18px);
+  border: 1px solid var(--line-subtle);
+  box-shadow: var(--shadow-md);
+  transition: gap var(--dur-base) var(--ease-out);
+}
+.dock-btn {
+  width: 28px;
+  height: 28px;
+  border-radius: 50%;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  color: var(--text-tertiary);
+  transition: background var(--dur-base) var(--ease-out),
+              color var(--dur-base) var(--ease-out);
+}
+.dock-btn:hover { background: var(--bg-hover); color: var(--text-primary); }
+.dock-btn.active { background: rgba(111, 134, 255, 0.18); color: var(--accent-blue); }
+
+/* 图例（hover 展开） */
+.dock-legend {
+  display: flex;
+  align-items: center;
+  gap: var(--sp-2);
+  max-width: 0;
+  overflow: hidden;
+  opacity: 0;
+  transition: max-width var(--dur-slow) var(--ease-out),
+              opacity var(--dur-base) var(--ease-out),
+              padding var(--dur-base) var(--ease-out);
+  padding: 0;
+}
+.sky-dock:hover .dock-legend {
+  max-width: 260px;
+  opacity: 1;
+  padding: 0 var(--sp-2);
+}
+.legend-item {
+  display: flex;
+  align-items: center;
+  gap: 4px;
+  font-size: 10px;
+  color: var(--text-tertiary);
+  white-space: nowrap;
+}
+.legend-item .dot {
+  width: 5px; height: 5px; border-radius: 50%;
+}
+
+/* ─── 星图：底部提示 ─── */
+.sky-hint {
+  position: absolute;
+  left: 50%;
+  bottom: var(--sp-4);
+  transform: translateX(-50%);
+  z-index: 3;
+  font-size: var(--fs-xs);
+  color: var(--text-tertiary);
+  letter-spacing: 0.04em;
+  pointer-events: none;
+  opacity: 0.72;
+  transition: opacity var(--dur-slow) var(--ease-out);
+  white-space: nowrap;
+}
+.sky-hint.hide { opacity: 0; }
+
+/* ─── 星图：悬停信息浮层 ─── */
+.sky-tooltip {
+  position: absolute;
+  z-index: 4;
+  pointer-events: none;
+  min-width: 168px;
+  max-width: 240px;
+  padding: var(--sp-2) var(--sp-3);
+  border-radius: var(--r-sm);
+  background: rgba(8, 11, 22, 0.94);
+  backdrop-filter: blur(14px);
+  -webkit-backdrop-filter: blur(14px);
+  border: 1px solid var(--line-medium);
+  box-shadow: var(--shadow-md);
+  opacity: 0;
+  transform: translateY(4px);
+  transition: opacity var(--dur-fast) var(--ease-out),
+              transform var(--dur-fast) var(--ease-out);
+}
+.sky-tooltip.show { opacity: 1; transform: translateY(0); }
+.sky-tooltip .tt-title {
+  font-size: var(--fs-sm);
+  font-weight: var(--fw-medium);
+  color: var(--text-primary);
+  line-height: 1.45;
+  margin-bottom: 5px;
+  word-break: break-word;
+}
+.sky-tooltip .tt-meta {
+  display: flex;
+  gap: var(--sp-2);
+  flex-wrap: wrap;
+  font-size: var(--fs-xs);
+  color: var(--text-tertiary);
+}
+
+/* ─── 星图：加载遮罩 ─── */
+.sky-loading {
+  position: absolute;
+  inset: 0;
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  justify-content: center;
+  gap: var(--sp-3);
+  z-index: 6;
+  background: rgba(5, 7, 13, 0.85);
+  transition: opacity var(--dur-slow) var(--ease-out);
+}
+.sky-loading.done { opacity: 0; pointer-events: none; }
+.sky-loading .txt { font-size: var(--fs-sm); color: var(--text-tertiary); letter-spacing: 0.06em; }
+
+/* 首屏引导 */
+.sky-intro {
+  position: absolute;
+  left: 50%;
+  top: 50%;
+  transform: translate(-50%, -50%);
+  text-align: center;
+  z-index: 5;
+  pointer-events: none;
+  transition: opacity var(--dur-slow) var(--ease-out);
+}
+.sky-intro.hide { opacity: 0; }
+
+/* ═══════════════ 响应式 ═══════════════ */
+
+/* 1280 笔记本 */
+@media (max-width: 1280px) {
+  .topnav { gap: var(--sp-4); padding: 0 var(--sp-4); }
+  .stat { padding: 2px 10px; min-width: 44px; }
+  .sky-panel { width: 216px; }
+  .page { padding: var(--sp-5) var(--sp-5) var(--sp-10); }
+}
+
+/* 1024 平板横屏 */
+@media (max-width: 1024px) {
+  .brand-sub { display: none; }
+  .stats { gap: 0; }
+  .stat:nth-child(n+4) { display: none; }
+  .grid-3 { grid-template-columns: repeat(2, minmax(0, 1fr)); }
+  .sky-panel { width: 200px; }
+}
+
+/* 768 平板竖屏 */
+@media (max-width: 768px) {
+  :root { --topbar-h: 52px; }
+
+  .topnav {
+    padding: 0 var(--sp-3);
+    gap: var(--sp-2);
+    flex-wrap: nowrap;
+  }
+  .brand-text { display: none; }
+  .stats { display: none; }
+  .nav {
+    margin-left: 0;
+    flex: 1;
+    justify-content: flex-start;
+    background: transparent;
+    padding: 0;
+  }
+  .nav-btn {
+    height: 30px;
+    padding: 0 11px;
+    font-size: var(--fs-xs);
+  }
+
+  /* 星图面板转底部抽屉 */
+  .sky-panel {
+    position: absolute;
+    top: auto;
+    bottom: 0;
+    left: 0;
+    right: 0;
+    width: 100%;
+    max-height: 52vh;
+    border-radius: var(--r-lg) var(--r-lg) 0 0;
+    border-left: 0;
+    border-right: 0;
+    border-bottom: 0;
+    background: rgba(11, 15, 26, 0.94);
+    padding: var(--sp-3);
+    gap: var(--sp-2);
+    transform: translateY(calc(100% - 46px));
+    transition: transform var(--dur-slow) var(--ease-out);
+  }
+  .sky-panel.expanded { transform: translateY(0); }
+  .sky-panel::before {
+    content: '';
+    position: absolute;
+    top: 10px;
+    left: 50%;
+    transform: translateX(-50%);
+    width: 34px;
+    height: 3px;
+    border-radius: 2px;
+    background: var(--line-strong);
+  }
+  .sky-panel .panel-section { display: none; }
+  .sky-panel .panel-section.primary { display: block; }
+
+  /* 折叠态只显示第一块的标题行 */
+  .sky-panel-head {
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    height: 34px;
+    font-size: var(--fs-xs);
+    color: var(--text-secondary);
+    cursor: pointer;
+    user-select: none;
+  }
+
+  .sky-dock { left: var(--sp-3); bottom: calc(52vh + var(--sp-2)); }
+  .sky-panel:not(.expanded) ~ .sky-dock { bottom: 52px; }
+  .sky-hint { bottom: 58px; font-size: 10px; }
+
+  .grid-3, .grid-2 { grid-template-columns: 1fr; }
+  .page { padding: var(--sp-4) var(--sp-4) var(--sp-8); }
+  .page-heading h2 { font-size: var(--fs-lg); }
+  .drawer { width: 100%; }
+}
+
+/* 390 手机 */
+@media (max-width: 480px) {
+  .topnav { height: 48px; }
+  .brand-mark { width: 26px; height: 26px; border-radius: 7px; font-size: 12px; }
+  .nav-btn { padding: 0 9px; font-size: 10px; height: 28px; }
+  .sky-panel { max-height: 56vh; }
+  .sky-hint { display: none; }
+  .dock-legend { display: none; }
+  .sky-dock { gap: 0; }
+  .dock-btn { width: 26px; height: 26px; }
+  .card { padding: var(--sp-3); }
+  .modal { width: 96vw; max-height: 90vh; }
+  .drawer { width: 100%; }
+  .page { padding: var(--sp-3); }
+}

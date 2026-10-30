@@ -1,0 +1,470 @@
+<!doctype html>
+<html lang="zh-CN">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
+<meta name="color-scheme" content="dark">
+<title>记忆宇宙</title>
+<link rel="stylesheet" href="/dsh-mind-api/panel/src/tokens.css">
+<link rel="stylesheet" href="/dsh-mind-api/panel/src/layout.css">
+<link rel="stylesheet" href="/dsh-mind-api/panel/src/sleep.css">
+<link rel="stylesheet" href="/dsh-mind-api/panel/src/settings.css">
+</head>
+<body>
+<div class="app-shell">
+
+  <!-- ══════════ TopNavigation ══════════ -->
+  <header class="topnav">
+    <div class="brand">
+      <div class="brand-mark">凛</div>
+      <div class="brand-text" title="点击修改名字">
+        <div class="brand-name" id="brandName">·</div>
+        <div class="brand-sub">记忆宇宙</div>
+      </div>
+    </div>
+
+    <div class="stats" id="topStats">
+      <div class="stat"><div class="stat-value" id="statMem">—</div><div class="stat-label">记忆</div></div>
+      <div class="stat"><div class="stat-value" id="statClu">—</div><div class="stat-label">主题</div></div>
+      <div class="stat"><div class="stat-value" id="statFat">—</div><div class="stat-label">疲惫</div></div>
+      <div class="stat"><div class="stat-value" id="statSleep">—</div><div class="stat-label">状态</div></div>
+    </div>
+
+    <nav class="nav" id="nav"></nav>
+  </header>
+
+  <!-- ══════════ Viewport ══════════ -->
+  <div class="viewport" id="viewport">
+
+    <!-- ────────── 星图 ────────── -->
+    <section class="view active" id="view-sky">
+      <div class="sky-stage" id="skyStage">
+        <div class="sky-labels" id="skyLabels"></div>
+
+        <div class="sky-loading" id="skyLoading">
+          <div class="spinner"></div>
+          <div class="txt">正在点亮记忆</div>
+        </div>
+
+        <!-- 右侧控制面板 -->
+        <aside class="sky-panel" id="skyPanel">
+          <div class="sky-panel-head" id="skyPanelHead">记忆控制</div>
+
+          <div class="panel-section primary">
+            <div class="panel-title">检索</div>
+            <div class="search-input">
+              <span class="icon">
+                <svg width="13" height="13" viewBox="0 0 16 16" fill="none">
+                  <circle cx="7" cy="7" r="4.6" stroke="currentColor" stroke-width="1.5"/>
+                  <path d="M10.4 10.4L13.5 13.5" stroke="currentColor" stroke-width="1.5" stroke-linecap="round"/>
+                </svg>
+              </span>
+              <input class="input" id="skySearch" placeholder="搜索记忆…" autocomplete="off">
+            </div>
+          </div>
+
+          <div class="panel-section">
+            <div class="panel-title">主题筛选</div>
+            <div id="skyClusterFilter" style="display:flex;flex-wrap:wrap;gap:4px"></div>
+          </div>
+
+          <div class="panel-section">
+            <div class="panel-title">最近新增</div>
+            <div class="recent-list" id="skyRecent"></div>
+          </div>
+
+          <div class="panel-section">
+            <div class="panel-title">显示</div>
+            <div class="toggle-list">
+              <label class="toggle">
+                <span class="toggle-label">记忆标签</span>
+                <input type="checkbox" id="tgLabels" checked>
+                <span class="toggle-track"></span>
+              </label>
+              <label class="toggle">
+                <span class="toggle-label">光晕</span>
+                <input type="checkbox" id="tgHalo" checked>
+                <span class="toggle-track"></span>
+              </label>
+              <label class="toggle">
+                <span class="toggle-label">自动旋转</span>
+                <input type="checkbox" id="tgRotate" checked>
+                <span class="toggle-track"></span>
+              </label>
+            </div>
+          </div>
+        </aside>
+
+        <!-- 左下悬浮控制条 -->
+        <div class="sky-dock" id="skyDock">
+          <div class="dock-legend" id="dockLegend"></div>
+          <button class="dock-btn" id="dkReset" title="重置视角">
+            <svg width="13" height="13" viewBox="0 0 16 16" fill="none">
+              <path d="M2.5 8a5.5 5.5 0 1 0 1.6-3.9" stroke="currentColor" stroke-width="1.5" stroke-linecap="round"/>
+              <path d="M2.5 2.5v3h3" stroke="currentColor" stroke-width="1.5" stroke-linecap="round"/>
+            </svg>
+          </button>
+          <button class="dock-btn active" id="dkLabels" title="显示标签">
+            <svg width="13" height="13" viewBox="0 0 16 16" fill="none">
+              <path d="M2 4h12M2 8h8M2 12h10" stroke="currentColor" stroke-width="1.5" stroke-linecap="round"/>
+            </svg>
+          </button>
+          <button class="dock-btn active" id="dkHalo" title="光晕">
+            <svg width="13" height="13" viewBox="0 0 16 16" fill="none">
+              <circle cx="8" cy="8" r="2.6" stroke="currentColor" stroke-width="1.4"/>
+              <circle cx="8" cy="8" r="5.6" stroke="currentColor" stroke-width="1.1" opacity="0.45"/>
+            </svg>
+          </button>
+          <button class="dock-btn active" id="dkRotate" title="自动旋转">
+            <svg width="13" height="13" viewBox="0 0 16 16" fill="none">
+              <ellipse cx="8" cy="8" rx="6" ry="2.6" stroke="currentColor" stroke-width="1.3"/>
+              <circle cx="8" cy="8" r="1.5" fill="currentColor"/>
+            </svg>
+          </button>
+          <button class="dock-btn" id="dkZoomIn" title="放大">
+            <svg width="13" height="13" viewBox="0 0 16 16" fill="none">
+              <path d="M8 3v10M3 8h10" stroke="currentColor" stroke-width="1.5" stroke-linecap="round"/>
+            </svg>
+          </button>
+          <button class="dock-btn" id="dkZoomOut" title="缩小">
+            <svg width="13" height="13" viewBox="0 0 16 16" fill="none">
+              <path d="M3 8h10" stroke="currentColor" stroke-width="1.5" stroke-linecap="round"/>
+            </svg>
+          </button>
+        </div>
+
+        <div class="sky-hint" id="skyHint">放大、点亮或拖拽星体，探索你的记忆</div>
+        <div class="sky-tooltip" id="skyTooltip">
+          <div class="tt-title"></div>
+          <div class="tt-meta"></div>
+        </div>
+      </div>
+
+      <!-- DetailDrawer -->
+      <aside class="drawer" id="skyDrawer">
+        <div class="drawer-header">
+          <h3 id="drawerTitle">—</h3>
+          <button class="close-btn" id="drawerClose" aria-label="关闭">
+            <svg width="12" height="12" viewBox="0 0 16 16" fill="none">
+              <path d="M3.5 3.5l9 9M12.5 3.5l-9 9" stroke="currentColor" stroke-width="1.7" stroke-linecap="round"/>
+            </svg>
+          </button>
+        </div>
+        <div class="drawer-body" id="drawerBody"></div>
+        <div class="drawer-footer" id="drawerFooter" style="display:none"></div>
+      </aside>
+    </section>
+
+    <!-- ────────── 心情 ────────── -->
+    <section class="view" id="view-mood">
+      <div class="page">
+        <div class="page-heading"><h2>心情</h2><span class="caption">当前情绪状态与分布</span></div>
+        <div class="grid grid-2">
+          <div class="card" style="grid-column:1/-1">
+            <div class="section-header"><span class="section-bar"></span><h3>此刻</h3></div>
+            <div id="moodHero"></div>
+          </div>
+          <div class="card"><div class="section-header"><span class="section-bar"></span><h3>基础情绪</h3></div><div id="moodBasic"></div></div>
+          <div class="card"><div class="section-header"><span class="section-bar"></span><h3>复合情绪</h3></div><div id="moodComplex"></div></div>
+          <div class="card"><div class="section-header"><span class="section-bar"></span><h3>当代说法</h3></div><div id="moodModern"></div></div>
+          <div class="card"><div class="section-header"><span class="section-bar"></span><h3>统计</h3></div><div id="moodStats"></div></div>
+        </div>
+      </div>
+    </section>
+
+    <!-- ────────── 日记 ────────── -->
+    <section class="view" id="view-diary">
+      <div class="page">
+        <div class="page-heading"><h2>日记</h2><span class="caption">每天 23:59 自动生成</span></div>
+        <div class="card" style="margin-bottom:16px">
+          <div class="section-header"><span class="section-bar"></span><h3>状态</h3></div>
+          <div id="diaryStatus"></div>
+        </div>
+        <div id="diaryBody"></div>
+      </div>
+    </section>
+
+    <!-- ────────── 经验卡 ────────── -->
+    <section class="view" id="view-proc">
+      <div class="page">
+        <div class="page-heading"><h2>经验卡</h2><span class="caption">程序性记忆与速记收件箱</span></div>
+        <div class="grid grid-2">
+          <div class="card">
+            <div class="section-header"><span class="section-bar"></span><h3>卡库</h3><div class="spacer"></div><span class="chip" id="procDir"></span></div>
+            <div id="procList"></div>
+          </div>
+          <div class="card">
+            <div class="section-header"><span class="section-bar"></span><h3>收件箱</h3></div>
+            <div id="procInbox"></div>
+            <div style="margin-top:12px;display:flex;flex-direction:column;gap:8px">
+              <textarea class="textarea" id="procInput" rows="2" placeholder="踩坑当下的一句话，收尾会整理成卡"></textarea>
+              <div style="display:flex;gap:8px">
+                <button class="btn btn-primary btn-sm" id="procAdd">写入</button>
+                <button class="btn btn-ghost btn-sm" id="procClear">清空</button>
+                <div style="flex:1"></div>
+                <button class="btn btn-ghost btn-sm" id="procScaffold">生成模板</button>
+              </div>
+            </div>
+          </div>
+        </div>
+      </div>
+    </section>
+
+    <!-- ────────── 品味 ────────── -->
+    <section class="view" id="view-taste">
+      <div class="page">
+        <div class="page-heading"><h2>品味</h2><span class="caption">AI 自身偏好与相关记忆</span></div>
+        <div class="grid grid-2">
+          <div class="card">
+            <div class="section-header"><span class="section-bar"></span><h3>原则</h3></div>
+            <div id="tastePrinciples"></div>
+            <div style="margin-top:12px;display:flex;flex-direction:column;gap:8px">
+              <input class="input" id="tasteText" placeholder="原则正文">
+              <input class="input" id="tasteWhy" placeholder="为什么（可选）">
+              <input class="input" id="tasteUnless" placeholder="不适用的情况（可选）">
+              <button class="btn btn-primary btn-sm" id="tasteAdd" style="align-self:flex-start">加入</button>
+            </div>
+          </div>
+          <div class="card">
+            <div class="section-header"><span class="section-bar"></span><h3>条目</h3><div class="spacer"></div><span class="chip" id="tasteStats"></span></div>
+            <div id="tasteItems"></div>
+          </div>
+          <div class="card grid-full">
+            <div class="section-header"><span class="section-bar"></span><h3>相关记忆</h3><div class="spacer"></div><span class="chip">点击可编辑</span></div>
+            <div id="tasteMems"></div>
+          </div>
+        </div>
+      </div>
+    </section>
+
+    <!-- ────────── 记忆治理 ────────── -->
+    <section class="view" id="view-mem">
+      <div class="page">
+        <div class="page-heading"><h2>记忆治理</h2><span class="caption">浏览、编辑、降权、彻底删除</span></div>
+        <div class="card" style="margin-bottom:16px">
+          <div class="section-header"><span class="section-bar"></span><h3>全部记忆</h3><div class="spacer"></div><span class="chip" id="memCount">—</span></div>
+          <div class="filter-bar" style="margin-bottom:12px">
+            <input class="input grow" id="memSearch" placeholder="按关键词过滤…">
+            <select class="select" id="memKind" style="width:126px"></select>
+            <select class="select" id="memSort" style="width:124px">
+              <option value="time">新 → 旧</option>
+              <option value="time-asc">旧 → 新</option>
+              <option value="importance">按重要度</option>
+              <option value="access">按访问量</option>
+            </select>
+          </div>
+          <div id="memList"></div>
+        </div>
+        <div class="grid grid-2">
+          <div class="card">
+            <div class="section-header"><span class="section-bar"></span><h3>检索</h3></div>
+            <div class="search-input">
+              <span class="icon"><svg width="13" height="13" viewBox="0 0 16 16" fill="none"><circle cx="7" cy="7" r="4.6" stroke="currentColor" stroke-width="1.5"/><path d="M10.4 10.4L13.5 13.5" stroke="currentColor" stroke-width="1.5" stroke-linecap="round"/></svg></span>
+              <input class="input" id="memQuery" placeholder="关键词检索…">
+            </div>
+            <div id="memHits" style="margin-top:12px"></div>
+          </div>
+          <div class="card">
+            <div class="section-header"><span class="section-bar"></span><h3>最近记忆</h3></div>
+            <div id="memRecent"></div>
+          </div>
+          <div class="card grid-full">
+            <div class="section-header"><span class="section-bar"></span><h3>治理审计</h3></div>
+            <div id="memAudit"></div>
+          </div>
+        </div>
+      </div>
+    </section>
+
+    <!-- ────────── 睡眠 ────────── -->
+    <section class="view" id="view-sleep">
+      <div class="page">
+        <div class="page-heading"><h2>睡眠</h2><span class="caption">疲惫值、作息区间与自主判断</span></div>
+
+        <div class="grid grid-3" style="margin-bottom:16px">
+          <!-- ① 当前状态 -->
+          <div class="card">
+            <div class="section-header"><span class="section-bar"></span><h3>当前状态</h3></div>
+            <div class="sleep-state">
+              <div class="sleep-hero">
+                <div class="sleep-orb" id="sleepOrb">
+                  <span class="dot" id="sleepOrbDot"></span>
+                </div>
+                <div style="min-width:0">
+                  <div class="sleep-state-name" id="sleepStateName">—</div>
+                  <div class="sleep-state-desc" id="sleepStateDesc"></div>
+                </div>
+              </div>
+              <div class="sleep-timing" id="sleepTiming"></div>
+              <div class="sleep-reason" id="sleepReason"></div>
+              <div style="display:flex;gap:8px;flex-wrap:wrap">
+                <button class="btn btn-ghost btn-sm" id="sleepGo">去睡</button>
+                <button class="btn btn-ghost btn-sm" id="sleepWake">叫醒</button>
+                <button class="btn btn-ghost btn-sm" id="sleepHeal" title="修复卡住的状态">修复状态</button>
+              </div>
+            </div>
+          </div>
+
+          <!-- ② 疲惫值 -->
+          <div class="card">
+            <div class="section-header"><span class="section-bar"></span><h3>疲惫值</h3>
+              <div class="spacer"></div>
+              <span class="chip" id="fatigueTrendChip"></span>
+            </div>
+            <div class="fatigue-head">
+              <span class="fatigue-num" id="fatigueNum">—</span>
+              <span class="fatigue-unit" id="fatigueUnit">/ 100</span>
+              <div style="flex:1"></div>
+              <span class="fatigue-trend" id="fatigueLevel"></span>
+            </div>
+            <div class="fatigue-chart" id="fatigueChart"></div>
+            <div class="fatigue-outlook" id="fatigueOutlook"></div>
+            <div style="display:flex;gap:6px;margin-top:12px">
+              <button class="btn btn-ghost btn-sm" data-fatigue="20">20</button>
+              <button class="btn btn-ghost btn-sm" data-fatigue="50">50</button>
+              <button class="btn btn-ghost btn-sm" data-fatigue="80">80</button>
+              <div style="flex:1"></div>
+              <span style="font-size:10px;color:var(--text-disabled);align-self:center" id="fatigueUpdated"></span>
+            </div>
+          </div>
+
+          <!-- ③ 作息区间 -->
+          <div class="card">
+            <div class="section-header"><span class="section-bar"></span><h3>作息区间</h3>
+              <div class="spacer"></div>
+              <button class="btn btn-ghost btn-sm" id="schedAdd">+ 时段</button>
+            </div>
+            <div style="display:flex;flex-direction:column;gap:8px;margin-bottom:12px">
+              <label class="toggle">
+                <span class="toggle-label">按疲惫值自主判断</span>
+                <input type="checkbox" id="schedAuto">
+                <span class="toggle-track"></span>
+              </label>
+              <label class="toggle">
+                <span class="toggle-label">固定时间优先</span>
+                <input type="checkbox" id="schedFixed">
+                <span class="toggle-track"></span>
+              </label>
+            </div>
+            <div id="sleepSchedule"></div>
+            <div id="schedConflict" style="font-size:10.5px;color:var(--danger);line-height:1.6;margin-top:6px"></div>
+          </div>
+        </div>
+
+        <!-- 时间轴 -->
+        <div class="card" style="margin-bottom:16px">
+          <div class="section-header"><span class="section-bar"></span><h3>今天的状态时间轴</h3>
+            <div class="spacer"></div>
+            <span class="chip" id="timelineDate"></span>
+          </div>
+          <div class="sleep-timeline" id="sleepTimeline"></div>
+          <div class="timeline-legend" id="timelineLegend"></div>
+        </div>
+
+        <div class="grid grid-2">
+          <div class="card">
+            <div class="section-header"><span class="section-bar"></span><h3>判断记录</h3>
+              <div class="spacer"></div>
+              <button class="btn btn-ghost btn-sm" id="sleepHistRefresh">刷新</button>
+            </div>
+            <div id="sleepHistory"></div>
+          </div>
+          <div class="card">
+            <div class="section-header"><span class="section-bar"></span><h3>整理进度</h3></div>
+            <div id="sleepSteps"></div>
+          </div>
+        </div>
+      </div>
+    </section>
+
+    <!-- 角色卡 / 消费：依赖外部桥接服务。启用方式见 README「可选集成」章节 -->
+
+    <!-- ────────── 设置 ────────── -->
+    <section class="view" id="view-settings">
+      <div class="page">
+        <div class="page-heading">
+          <h2>设置</h2>
+          <span class="caption" id="settingsFile">—</span>
+          <div style="flex:1"></div>
+          <span class="chip" id="settingsLoaded">—</span>
+        </div>
+
+        <div class="settings-tabs" id="settingsTabs"></div>
+        <div id="settingsBody"><div class="loading-state"><span class="spinner"></span><span>读取配置</span></div></div>
+
+        <div class="settings-footer">
+          <span class="status" id="settingsStatus">未修改</span>
+          <button class="btn btn-ghost btn-sm" id="settingsReset">恢复默认</button>
+          <button class="btn btn-primary btn-sm" id="settingsSave">保存</button>
+        </div>
+
+        <div class="env-hint">
+          <b>环境变量仍可覆盖</b>（优先级高于此页，适合容器部署）：<br>
+          <code>DSH_MIND_DATA_DIR</code> 数据目录 ·
+          <code>DSH_MIND_ROLE_NAME</code> 角色名 ·
+          <code>DSH_MIND_INJECT</code> 注入开关 ·
+          <code>QQ_BRIDGE_CONFIG</code> / <code>QQ_BRIDGE_PORT</code> / <code>QQ_BRIDGE_TOKEN</code> 桥接<br>
+          改完此页的部分参数（如睡眠阈值、记忆去重）立即生效；<code>tickSeconds</code> 等需要重启插件。
+        </div>
+      </div>
+    </section>
+
+    <!-- ────────── 系统 ────────── -->
+    <section class="view" id="view-sys">
+      <div class="page">
+        <div class="page-heading"><h2>系统</h2><span class="caption">服务连接状态</span></div>
+        <div class="grid grid-2">
+          <div class="card">
+            <div class="section-header"><span class="section-bar"></span><h3>连接</h3><div class="spacer"></div>
+              <button class="btn btn-ghost btn-sm" id="sysRefresh">检测</button></div>
+            <div id="sysConn"></div>
+          </div>
+          <div class="card">
+            <div class="section-header"><span class="section-bar"></span><h3>记忆库</h3></div>
+            <div id="sysDb"></div>
+          </div>
+          <div class="card">
+            <div class="section-header"><span class="section-bar"></span><h3>桥接活动</h3></div>
+            <div id="sysActivity"></div>
+          </div>
+          <div class="card">
+            <div class="section-header"><span class="section-bar"></span><h3>关于</h3></div>
+            <div id="sysAbout"></div>
+          </div>
+        </div>
+      </div>
+    </section>
+
+  </div>
+</div>
+
+<!-- 记忆编辑弹窗 -->
+<div class="modal-mask" id="memModal">
+  <div class="modal">
+    <div class="modal-header">
+      <h3 id="modalTitle">记忆</h3>
+      <button class="close-btn" id="modalClose">
+        <svg width="12" height="12" viewBox="0 0 16 16" fill="none">
+          <path d="M3.5 3.5l9 9M12.5 3.5l-9 9" stroke="currentColor" stroke-width="1.7" stroke-linecap="round"/>
+        </svg>
+      </button>
+    </div>
+    <div class="modal-body">
+      <div id="modalMeta" style="display:flex;gap:6px;flex-wrap:wrap"></div>
+      <textarea class="textarea" id="modalText" rows="5"></textarea>
+      <div id="modalHint" style="font-size:10.5px;color:var(--text-tertiary);line-height:1.7"></div>
+    </div>
+    <div class="modal-footer">
+      <button class="btn btn-danger btn-sm" id="modalDelete" style="margin-right:auto">彻底删除</button>
+      <button class="btn btn-ghost btn-sm" id="modalDep">降权</button>
+      <button class="btn btn-ghost btn-sm" id="modalCancel">取消</button>
+      <button class="btn btn-primary btn-sm" id="modalSave">保存</button>
+    </div>
+  </div>
+</div>
+
+<div class="toast" id="toast"></div>
+
+<script type="module" src="/dsh-mind-api/panel/src/app.js"></script>
+</body>
+</html>

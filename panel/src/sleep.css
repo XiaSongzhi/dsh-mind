@@ -1,0 +1,292 @@
+/* ═══════════════════════════════════════════════════════════════════
+   睡眠页专用样式
+   ═══════════════════════════════════════════════════════════════════ */
+
+/* 状态卡：四态配色 */
+.sleep-state {
+  display: flex;
+  flex-direction: column;
+  gap: var(--sp-4);
+}
+.sleep-hero {
+  display: flex;
+  align-items: center;
+  gap: var(--sp-3);
+}
+.sleep-orb {
+  width: 44px;
+  height: 44px;
+  border-radius: 50%;
+  flex-shrink: 0;
+  position: relative;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+}
+.sleep-orb::after {
+  content: '';
+  position: absolute;
+  inset: -6px;
+  border-radius: 50%;
+  opacity: 0.28;
+  filter: blur(8px);
+  animation: orb-breathe 3.6s var(--ease-in-out) infinite;
+}
+@keyframes orb-breathe {
+  0%, 100% { transform: scale(1); opacity: 0.22; }
+  50%      { transform: scale(1.16); opacity: 0.42; }
+}
+.sleep-orb .dot {
+  width: 12px;
+  height: 12px;
+  border-radius: 50%;
+  z-index: 1;
+}
+.sleep-state-name {
+  font-size: var(--fs-xl);
+  font-weight: var(--fw-semibold);
+  line-height: 1.2;
+}
+.sleep-state-desc {
+  font-size: var(--fs-xs);
+  color: var(--text-tertiary);
+  margin-top: 3px;
+  line-height: 1.5;
+}
+
+/* 状态时间信息 */
+.sleep-timing {
+  display: grid;
+  grid-template-columns: repeat(2, 1fr);
+  gap: var(--sp-3);
+  padding: var(--sp-3);
+  background: var(--bg-base);
+  border-radius: var(--r-sm);
+}
+.sleep-timing .k {
+  font-size: var(--fs-xs);
+  color: var(--text-tertiary);
+  margin-bottom: 2px;
+}
+.sleep-timing .v {
+  font-size: var(--fs-sm);
+  color: var(--text-secondary);
+  font-variant-numeric: tabular-nums;
+}
+
+/* 判断依据 */
+.sleep-reason {
+  padding: var(--sp-3);
+  background: rgba(111, 134, 255, 0.06);
+  border-left: 2px solid var(--accent-blue);
+  border-radius: 0 var(--r-sm) var(--r-sm) 0;
+  font-size: var(--fs-xs);
+  line-height: 1.75;
+  color: var(--text-secondary);
+}
+.sleep-reason b { color: var(--accent-blue); font-weight: var(--fw-medium); }
+
+/* 疲惫值卡 */
+.fatigue-head {
+  display: flex;
+  align-items: flex-end;
+  gap: var(--sp-3);
+  margin-bottom: var(--sp-3);
+}
+.fatigue-num {
+  font-size: var(--fs-3xl);
+  font-weight: var(--fw-bold);
+  line-height: 1;
+  font-variant-numeric: tabular-nums;
+}
+.fatigue-unit {
+  font-size: var(--fs-xs);
+  color: var(--text-tertiary);
+  padding-bottom: 4px;
+}
+.fatigue-trend {
+  display: inline-flex;
+  align-items: center;
+  gap: 3px;
+  font-size: var(--fs-xs);
+  padding: 2px 7px;
+  border-radius: var(--r-xs);
+  background: var(--bg-input);
+}
+.fatigue-trend.up   { color: var(--warn); }
+.fatigue-trend.down { color: var(--ok); }
+.fatigue-trend.flat { color: var(--text-tertiary); }
+
+/* 疲惫曲线（SVG 容器） */
+.fatigue-chart {
+  height: 72px;
+  margin: var(--sp-3) 0;
+  border-radius: var(--r-sm);
+  background: var(--bg-base);
+  overflow: hidden;
+  position: relative;
+}
+.fatigue-chart svg { display: block; width: 100%; height: 100%; }
+
+/* 预期提示 */
+.fatigue-outlook {
+  display: flex;
+  flex-direction: column;
+  gap: var(--sp-2);
+  font-size: var(--fs-xs);
+  color: var(--text-tertiary);
+}
+.fatigue-outlook .row {
+  display: flex;
+  align-items: center;
+  gap: var(--sp-2);
+}
+.fatigue-outlook .row .k { min-width: 76px; }
+.fatigue-outlook .row .v { color: var(--text-secondary); }
+
+/* 作息卡 */
+.sched-row {
+  display: flex;
+  align-items: center;
+  gap: var(--sp-2);
+  padding: var(--sp-2);
+  border-radius: var(--r-sm);
+  background: var(--bg-base);
+  margin-bottom: 6px;
+  transition: background var(--dur-base) var(--ease-out);
+}
+.sched-row:hover { background: var(--bg-raised); }
+.sched-row.conflict {
+  box-shadow: inset 2px 0 0 var(--danger);
+}
+.sched-name {
+  flex: 1;
+  min-width: 0;
+  font-size: var(--fs-xs);
+  background: transparent;
+  border: 0;
+  color: var(--text-secondary);
+  padding: 3px 4px;
+  border-radius: var(--r-xs);
+}
+.sched-name:focus {
+  background: var(--bg-input);
+  outline: none;
+  box-shadow: 0 0 0 1px rgba(111, 134, 255, 0.4);
+}
+.sched-time {
+  width: 84px;
+  height: 24px;
+  font-size: var(--fs-xs);
+  padding: 0 5px;
+  background: var(--bg-input);
+  border: 1px solid var(--line-subtle);
+  border-radius: var(--r-xs);
+  color: var(--text-secondary);
+}
+.sched-time:focus {
+  outline: none;
+  border-color: rgba(111, 134, 255, 0.45);
+}
+.sched-conflict-note {
+  font-size: 10px;
+  color: var(--danger);
+  padding: 2px 0 6px var(--sp-2);
+}
+
+/* 时间轴 */
+.sleep-timeline {
+  position: relative;
+  height: 84px;
+  padding: var(--sp-2) 0;
+}
+.timeline-track {
+  position: absolute;
+  left: 0; right: 0;
+  top: 50%;
+  height: 2px;
+  background: var(--line-subtle);
+  border-radius: 1px;
+}
+.timeline-seg {
+  position: absolute;
+  top: 50%;
+  height: 6px;
+  transform: translateY(-50%);
+  border-radius: 3px;
+  opacity: 0.72;
+}
+.timeline-mark {
+  position: absolute;
+  top: 50%;
+  width: 2px;
+  height: 14px;
+  transform: translate(-1px, -50%);
+  background: var(--accent-blue);
+  border-radius: 1px;
+}
+.timeline-now {
+  position: absolute;
+  top: 50%;
+  transform: translate(-50%, -50%);
+  width: 8px;
+  height: 8px;
+  border-radius: 50%;
+  background: var(--accent-lime);
+  box-shadow: 0 0 8px var(--accent-lime);
+}
+.timeline-label {
+  position: absolute;
+  font-size: 10px;
+  color: var(--text-tertiary);
+  transform: translateX(-50%);
+  white-space: nowrap;
+}
+.timeline-legend {
+  display: flex;
+  gap: var(--sp-3);
+  flex-wrap: wrap;
+  margin-top: var(--sp-2);
+  font-size: 10px;
+  color: var(--text-tertiary);
+}
+.timeline-legend .item {
+  display: flex;
+  align-items: center;
+  gap: 4px;
+}
+.timeline-legend .sw {
+  width: 8px;
+  height: 3px;
+  border-radius: 2px;
+}
+
+/* 判断记录列表 */
+.sleep-hist-item {
+  display: flex;
+  gap: var(--sp-3);
+  padding: var(--sp-2) 0;
+  border-bottom: 1px solid var(--line-subtle);
+  font-size: var(--fs-xs);
+}
+.sleep-hist-item:last-child { border-bottom: 0; }
+.sleep-hist-time {
+  color: var(--text-disabled);
+  flex-shrink: 0;
+  width: 42px;
+  font-variant-numeric: tabular-nums;
+}
+.sleep-hist-body { flex: 1; min-width: 0; }
+.sleep-hist-reason { color: var(--text-secondary); line-height: 1.55; }
+.sleep-hist-meta {
+  color: var(--text-tertiary);
+  margin-top: 2px;
+  display: flex;
+  gap: var(--sp-2);
+  flex-wrap: wrap;
+}
+
+@media (max-width: 768px) {
+  .sleep-timing { grid-template-columns: 1fr; }
+  .fatigue-num { font-size: var(--fs-2xl); }
+}

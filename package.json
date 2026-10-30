@@ -1,12 +1,56 @@
 {
   "name": "dsh-mind",
-  "version": "0.1.0-alpha.1",
-  "description": "统一记忆/情绪/睡眠插件（dsh-mood 0.14.16 融合分叉）：SQLite 主库 + FTS5 bigram 检索 + 注入协调器 + 睡眠状态机 + 独立管理页",
+  "version": "0.2.0",
+  "description": "AI 长期记忆 + 动态情绪 + 睡眠系统，以可探索的记忆宇宙星图呈现（DeepSeek Harness 插件）",
   "type": "module",
   "main": "index.js",
   "license": "MIT",
-  "engines": { "node": ">=24" },
+  "engines": {
+    "node": ">=22"
+  },
+  "keywords": [
+    "dsh",
+    "dsh-plugin",
+    "deepseek-harness",
+    "memory",
+    "sqlite",
+    "fts5",
+    "threejs",
+    "glsl",
+    "ai-companion",
+    "memory-graph",
+    "emotion-engine",
+    "sleep-system"
+  ],
+  "scripts": {
+    "build": "node scripts/build-panel.mjs",
+    "demo": "node scripts/demo-server.mjs",
+    "test": "node --test test/",
+    "test:sleep": "node test/sleep.test.mjs",
+    "import": "node scripts/import-archive.mjs"
+  },
+  "files": [
+    "index.js",
+    "lib/",
+    "panel/",
+    "vendor/",
+    "scripts/",
+    "docs/",
+    "cordis.patch.yml",
+    "README.md",
+    "LICENSE"
+  ],
+  "peerDependencies": {
+    "@deepseek-ai/dsh-tools": "*"
+  },
+  "peerDependenciesMeta": {
+    "@deepseek-ai/dsh-tools": {
+      "optional": true
+    }
+  },
   "dsh": {
-    "bundle": { "patch": "./cordis.patch.yml" }
+    "bundle": {
+      "patch": "./cordis.patch.yml"
+    }
   }
 }

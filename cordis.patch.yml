@@ -1,6 +1,9 @@
-# dsh-mind bundle patch —— 纯 insert，与 dsh-mood 互不干扰。
-# ⚠️ 灰度纪律：dsh-mind 未完成验收前，本插件与 dsh-mood 同时安装也只「先只写不读」
-#    （inject 默认 false，见 index.js 配置默认值）。切换前不要移除 dsh-mood。
-- insert:
-    - id: dsh-mind
-      name: dsh-mind
+# dsh-mind bundle patch —— 纯 insert，不改动宿主已有配置。
+#
+# 本插件的动态情绪系统基于 dsh-mood（开源）融合实现。
+# inject 默认 false（只写不读），确认可用后再打开。
+insert:
+  - id: dsh-mind
+    module: dsh-mind
+    config:
+      inject: false

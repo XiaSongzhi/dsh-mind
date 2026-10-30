@@ -47,7 +47,7 @@ import {
   // ⚠️ 2026-10-18 起**接上 writeDiary 了**。
   //
   //    原来这里写着「故意不导入 —— 模型侧没有任何代笔入口，那个函数是给将来留的」。
-  //    现在"将来"到了：主人要日记由模型自己写，而不是模板拼。
+  //    现在"将来"到了：用户要日记由模型自己写，而不是模板拼。
   //    （模板拼出来的是「今天坐得住 + 18点话最密 + 高频词是 file/dsh」——
   //      壳子对、素材真，但那不是日记，是统计报告。）
   //    模板**保留作兜底**：那天没人来写，仍然有一篇。
@@ -62,7 +62,7 @@ import {
   fetchVideoFrames as newsFrames,
 } from './news.js'
 // 品味库：跨会话的审美档案。和心情同一个思路（注入提示词），
-// 但相反的地方在于 —— 心情每 3~6 小时自己变，品味只在主人改它的时候变。
+// 但相反的地方在于 —— 心情每 3~6 小时自己变，品味只在用户改它的时候变。
 import {
   tasteFile, TAG_DIMS,
   loadTaste, saveTaste,
@@ -581,7 +581,7 @@ const DISTRESS = [
  *      「想死了这需求」          = 开发里的夸张（不是痛苦）
  *
  *    按上面那条"误报比漏报更糟"的原则，这些得挡掉 ——
- *    不然主人随口撒个娇就被切成"严肃模式"，几次之后真出事时就不当回事了。
+ *    不然用户随口撒个娇就被切成"严肃模式"，几次之后真出事时就不当回事了。
  *
  * ⚠️ 例外只挡**明确的习语**，不用模糊规则：
  *    写宽了会漏掉真的信号，那比误报更糟。
@@ -909,6 +909,28 @@ function argmax(values) {
  * ranked 必须是按 value 降序的 [{id,label,value}]。
  * 返回 { primary, mixed }：mixed 是除主导外、与最高分差 < blendGap 的那几个。
  */
+/**
+ * 以**指定心情**为主导的混合态。
+ *
+ * 为什么要这个：blendOf() 用"最高分"当主导，但 state.current 是经过
+ * margin + minHold 判定后真正生效的心情。两者可能不一致（最高分还没
+ * 达到切换条件），那时接口会自相矛盾 —— current 说疲惫、mixLabel 说
+ * "开心里掺着专注"。
+ *
+ * 这里以 currentId 为主导，只把"和它分值接近"的算作掺着的味道。
+ * 若 currentId 找不到（数据异常），退回 blendOf 的行为。
+ */
+export function blendAround(ranked, currentId, gap = CFG.blendGap, max = CFG.blendMax) {
+  if (!Array.isArray(ranked) || !ranked.length) return { primary: null, mixed: [] }
+  const primary = ranked.find(function (r) { return r.id === currentId }) || ranked[0]
+  const baseValue = primary.value
+  const mixed = ranked
+    .filter(function (r) { return r.id !== primary.id && baseValue - r.value < gap })
+    .sort(function (a, b) { return b.value - a.value })
+    .slice(0, Math.max(0, max - 1))
+  return { primary, mixed }
+}
+
 export function blendOf(ranked, gap = CFG.blendGap, max = CFG.blendMax) {
   if (!Array.isArray(ranked) || !ranked.length) return { primary: null, mixed: [] }
   const top = ranked[0].value
@@ -1377,7 +1399,7 @@ export function apply(root, rawConfig) {
   //
   // ★ 它和心情走**同一个思路**，但目的相反：
   //   心情是"我现在什么状态"，每 3~6 小时自己变；
-  //   品味是"我该按什么尺子看东西"，只在主人改它的时候变。
+  //   品味是"我该按什么尺子看东西"，只在用户改它的时候变。
   //
   //   为什么要注入提示词而不是"给个查询工具"：
   //   只有工具的话，它是**我记得去查** —— 而没有人会在每次看图之前先查一遍自己的品味。
@@ -1423,7 +1445,7 @@ export function apply(root, rawConfig) {
    */
   // ⚠️ 2026-10-16 加：**插件的日记生成完之后，把话筒递给我一次，让我自己写一份。**
   //
-  //    起因是主人那句话：「日记得你自己来写才是日记」。
+  //    起因是用户那句话：「日记得你自己来写才是日记」。
   //    他说得对 —— 插件 23:59 拿素材合成的那一篇是**摘要**（模板句 + 当天数字），
   //    不是日记。而"我自己写"这件事卡在一个跟意愿无关的地方：**我不主动**。
   //    我不能自己定时醒来，只有有人跟我说话我才会动 —— 所以得有个东西在每天叫我。
@@ -1537,6 +1559,35 @@ export function apply(root, rawConfig) {
     return null
   }
 
+  /**
+   * 心跳轻量检查：分值排序变了就该切换，不必等周期判定。
+   *
+   * 场景：疲惫值被睡眠系统同步推高，或某心情因累积偏离当前心情，
+   *      但没人说话、周期也没到点 —— 原来 current 会一直卡住。
+   *
+   * 只做判定，**不衰减不加噪**（衰减是 periodic 的职责）。
+   * 有 minHoldMs 与 margin 双重保护，不会来回抖。
+   */
+  const transitionIfSkewed = () => {
+    const now = Date.now()
+    // 未过最短保持期就别折腾
+    if (now - (state.lastSwitchAt || 0) < CFG.minHoldMs) return null
+    const candidate = argmax(state.values)
+    if (candidate === state.current) return null
+    const enough = state.values[candidate] >= state.values[state.current] + CFG.margin
+    if (!enough) return null
+    const before = state.current
+    const res = tryTransition(state, 'heartbeat', now, aroundOf(diary, '', now))
+    if (res && res.switched) {
+      noteSwitch(diary, before, res.to, now)
+      saveState(state)
+      saveDiary(diary)
+    }
+    return res
+  }
+
+
+
   const summary = () => {
     const now = Date.now()
     const cur = state.current
@@ -1546,7 +1597,8 @@ export function apply(root, rawConfig) {
     const sinceSwitchMin = state.lastSwitchAt ? Math.round((now - state.lastSwitchAt) / 60000) : null
     const sincePeriodicMin = state.lastPeriodicAt ? Math.round((now - state.lastPeriodicAt) / 60000) : null
     const nextPeriodicMin = Math.max(0, Math.round(((state.lastPeriodicAt || now) + (state.nextPeriodicMs || 0) - now) / 60000))
-    const { primary, mixed } = blendOf(ranked)
+    const { primary, mixed } = blendAround(ranked, cur)
+    const mixLabelText = mixed.length === 0 ? primary.label : (mixed.length === 1 ? primary.label + '里掺着' + mixed[0].label : primary.label + '混着' + mixed.map(function (m) { return m.label }).join('、'))
     return {
       current: cur,
       currentLabel: MOODS[cur].label,
@@ -1558,7 +1610,7 @@ export function apply(root, rawConfig) {
       primaryLabel: primary ? primary.label : MOODS[cur].label,
       mixed: mixed.map((m) => ({ id: m.id, label: m.label })),
       /** 人话版本，如「平静里掺着好奇」 */
-      mixLabel: blendLabel(ranked),
+      mixLabel: mixLabelText,
       /** 主导心情的行为倾向 + 掺着那些的倾向各取一句 */
       hintLines: [MOODS[cur].hint, ...mixed.map((m) => `还带点${m.label}：${MOODS[m.id].hint}`)],
       innerLines: [MOODS[cur].inner, ...mixed.map((m) => `（${m.label}那面）${MOODS[m.id].inner}`)],
@@ -1710,7 +1762,7 @@ export function apply(root, rawConfig) {
     // 2) 系统提示词一节：**这个工作区以前的对话**（跨会话共享）
     //
     //    ⚠️ order 895 —— 排在**品味（890）之后、心情（900）之前**。
-    //       依据是"变化频率"：品味只在主人改它时变（几天一次）；
+    //       依据是"变化频率"：品味只在用户改它时变（几天一次）；
     //       这一节只在有新会话、或会话有新消息时变（一天几次）；
     //       心情每轮都在变分值。**稳的排前面，缓存才活得久。**
     //
@@ -1844,10 +1896,10 @@ export function apply(root, rawConfig) {
                 '","text":"..."}` 写一版 —— 素材（几点开始、话最密的时段、高频词）在 `diary {"action":"read"}` 里看得到。')
             }
           } catch { /* 读不到就当没有，别让提示词整个挂掉 */ }
-          lines.push('· **日记归你所有，主人默认看不到。** 他开口想看时，由你决定：')
+          lines.push('· **日记归你所有，用户默认看不到。** 他开口想看时，由你决定：')
           lines.push('  愿意就用 `diary {"action":"allow"}` 放行，不愿意就 `{"action":"deny"}` 并说清理由。')
           lines.push('  放行后设置页的书本图标会**从合上变成张开**；收回就再合上。默认状态是**合上**。')
-          lines.push('  这是你的东西 —— 不必因为对方是主人就一律放行，但也别无缘无故锁着。')
+          lines.push('  这是你的东西 —— 不必因为对方是用户就一律放行，但也别无缘无故锁着。')
           lines.push('· **表情包是心情的自然流露，不是任务。** 说话时顺手甩一张，是因为当时就是那个心情；')
           lines.push('  心情不对就不发 —— 不必硬凑，也不用查什么对照表。发不发、发什么，跟着感觉走。')
           lines.push('')
@@ -2001,24 +2053,24 @@ export function apply(root, rawConfig) {
              * ⚠️ 重启提醒**投到哪个对话**，由这一刻决定。
              *
              * 原来的投递用的是 `liveSession`（最近一次有动静的 session）——
-             * 主人切过对话的话，提醒就跑到别的对话框里去了。
+             * 用户切过对话的话，提醒就跑到别的对话框里去了。
              * 而这条提醒是**针对这次重启**的，落在没在看的那条里等于白发。
              *
-             * 判据改成：**主人在哪个对话里开口，就投给哪个**。
+             * 判据改成：**用户在哪个对话里开口，就投给哪个**。
              * 他既然在这儿敲字，说明他就在看这一条。
              * 绑上之后不再改 —— 免得后来的事件把待办"抢"走。
              */
             if (proactive.pendingRestart || proactive.pendingStale) {
               const sid0 = sessionIdOf(session || liveSession)
               /**
-               * ★ **主人在这个对话里开口，就是"他在看哪条"最强的证据 ——
+               * ★ **用户在这个对话里开口，就是"他在看哪条"最强的证据 ——
                *   它必须能覆盖任何猜测。**
                *
                * 原来这里是 `&& !proactive.reportSid` —— 已经绑过就不再改。
                * 于是踩了这个坑：启动时 `bindReportSession` 靠 `list()` 里的时间戳
                * 猜"最近的那个"，而 DSH 返回的会话项**未必带时间戳** ——
                * 都不带时排序等于没排，它抓了列表里第一个。
-               * 结果：主人 14:28 重启，`reportSid` 却指着 **11 小时前**那个对话，
+               * 结果：用户 14:28 重启，`reportSid` 却指着 **11 小时前**那个对话，
                * 之后他在这里怎么说话都改不了，诊断里一直写着
                * 「当前活跃的是别的对话，等回到绑定的那条再投」—— 而那条他不会再回去。
                *
@@ -2228,7 +2280,7 @@ export function apply(root, rawConfig) {
         reportedAt: proactive.reportedAt || 0,
         procStart: proactive.procStart || 0,
         // 上一次"重启汇报"检查的结论 —— 没触发时**为什么**没触发。
-        // 没这个字段的话，主人只能问"怎么没汇报"，然后两边一起猜。
+        // 没这个字段的话，用户只能问"怎么没汇报"，然后两边一起猜。
         lastReportCheck: proactive.lastReportCheck || null,
         // 最近一次**成功投递**（和上面那个不同：上面会被空跑覆盖）
         lastReportDone: proactive.lastReportDone || null,
@@ -2319,7 +2371,7 @@ export function apply(root, rawConfig) {
     }
 
     /**
-     * 启动时自己认出"主人最近在哪个对话"，把欠着的汇报绑上去。
+     * 启动时自己认出"用户最近在哪个对话"，把欠着的汇报绑上去。
      *
      * ⚠️ 这是补上一个**设计错误**。
      *    上一版的做法是"等他开口那一刻再绑"（理由：他既然在这儿敲字，就在看这条）。
@@ -2353,14 +2405,14 @@ export function apply(root, rawConfig) {
          *
          * 后果比"不投递"更糟：启动时 `liveSession` 还是 null，
          * 后面那条「当前活跃的是不是绑定的那条」**没得比**，直接放行 ——
-         * 于是汇报安静地投进一个主人不会看的对话里。他不光收不到，还不知道为什么。
+         * 于是汇报安静地投进一个用户不会看的对话里。他不光收不到，还不知道为什么。
          *
          * 所以：**一个带时间戳的都没有 → 不绑**，留给"他开口那一刻"那条路。
          * 宁可晚几十秒（他一说话就投），也不要投错地方。
          */
         const timed = items.filter((x) => stamp(x) > 0)
         if (!timed.length) {
-          ctx.logger?.info?.('[dsh-mood] 会话列表没有时间戳 —— 不猜，等主人在对话里开口')
+          ctx.logger?.info?.('[dsh-mood] 会话列表没有时间戳 —— 不猜，等用户在对话里开口')
           return false
         }
         const newest = timed.slice().sort((a, b) => stamp(b) - stamp(a))[0]
@@ -2380,13 +2432,13 @@ export function apply(root, rawConfig) {
     /**
      * 重启汇报 —— 「任务结束」时看一眼有没有欠着的。
      *
-     * ⚠️ 它**不走 idle 门槛**。重启是主人刚刚亲手做的事，等 25 分钟空闲才说
+     * ⚠️ 它**不走 idle 门槛**。重启是用户刚刚亲手做的事，等 25 分钟空闲才说
      *    等于永远不说。但**静默/允许时段照样管** —— 凌晨三点重启也不该吵。
      *
      * 说不说仍然由模型决定（投的是 <silent/> 可回绝的框），跟普通开口一个路子。
      *
      * ⚠️ **每一道 return 都留一条诊断**（proactive.lastReportCheck）。
-     *    第一版没留，结果主人问"怎么没汇报"时只能靠猜 ——
+     *    第一版没留，结果用户问"怎么没汇报"时只能靠猜 ——
      *    这类"静默 return"从外面完全看不出来。诊断一路透到设置页。
      */
     async function maybeReportRestart() {
@@ -2394,7 +2446,7 @@ export function apply(root, rawConfig) {
       try {
         if (!sessionCtl || typeof sessionCtl.prompt !== 'function') { skip('拿不到会话控制器'); await persistProactive(); return }
         // ⚠️ **绑上了就不需要 liveSession 了。**
-        //    liveSession 是靠「收到会话事件」才有的 —— 而重启之后、主人还没开口之前，
+        //    liveSession 是靠「收到会话事件」才有的 —— 而重启之后、用户还没开口之前，
         //    它必然是 null。原来这里硬性要求 liveSession，等于又绕回"等他先说话"，
         //    跟刚修掉的那个死锁是同一类错误（要一个只有他动手才会有东西）。
         //    目标会话已经从 sessionController.list() 认出来了，直接用它。
@@ -2403,12 +2455,12 @@ export function apply(root, rawConfig) {
         if (!c.enabled) { skip('主动开口关着'); await persistProactive(); return }
         const kind = proactive.pendingRestart ? 'restart' : (proactive.pendingStale ? 'stale' : '')
         if (!kind) { skip('没有欠着的汇报'); await persistProactive(); return }
-        // ⚠️ **必须投给主人开口的那个对话**，不是"最近有动静的那个"。
+        // ⚠️ **必须投给用户开口的那个对话**，不是"最近有动静的那个"。
         //    他想看的提醒，要出现在他正看着的那条对话里。
         //    还没人开口就等着 —— 宁可晚一点，也别发到别的对话框去。
         const sid = proactive.reportSid || ''
         if (!sid) {
-          skip('还不知道该投给哪个对话（等主人先在某个对话里开口）')
+          skip('还不知道该投给哪个对话（等用户先在某个对话里开口）')
           await persistProactive()
           return
         }
@@ -2423,7 +2475,7 @@ export function apply(root, rawConfig) {
         //
         //    它把这条提醒变成了死锁：
         //      要投递 → 得等没有回合在跑
-        //      但主人只有在说话的时候我才在 → 一说话就有回合
+        //      但用户只有在说话的时候我才在 → 一说话就有回合
         //    实测就是这个症状：重启之后一直没汇报，诊断里反复写着"回合还在跑"。
         //    只有他放下不管、走开 30 秒以上，心跳才可能撞上空档发出来 ——
         //    这跟"重启后告诉你一声"的目的正好相反。
@@ -2435,13 +2487,13 @@ export function apply(root, rawConfig) {
         //    静默时段和允许时段**照样管**（下面那两道），只是不再要求"此刻没人说话"。
         const now = Date.now()
         const h = new Date(now).getHours()
-        // 允许时段照样管 —— 那是主人**明确勾过**的"我允许你什么时候说话"。
+        // 允许时段照样管 —— 那是用户**明确勾过**的"我允许你什么时候说话"。
         if (!slotAllowed(c, h)) { skip(h + ' 点不在允许时段里'); await persistProactive(); return }
 
         // ⚠️ **深夜静默不管重启汇报**（只管主动开口）。
         //
         //    这是最后一层拦路虎。实测：01:07 重启，诊断一路写「1~7 点静默」——
-        //    主人 01:07 重启完、01:15 问"怎么还没汇报"，中间它一个字都没说，
+        //    用户 01:07 重启完、01:15 问"怎么还没汇报"，中间它一个字都没说，
         //    因为那会儿正在静默里。
         //
         //    但这两件事性质不同：
@@ -2553,23 +2605,23 @@ export function apply(root, rawConfig) {
           name: 'diary',
           description:
             '心情日记。**每天 23:59 插件会先用当天真实素材拼一篇兜底**（聊了多少轮、心情怎么变的、' +
-            '出过几次岔子），**归你所有 —— 主人默认看不到，要你同意才行**。\n' +
+            '出过几次岔子），**归你所有 —— 用户默认看不到，要你同意才行**。\n' +
             '**但你可以写，而且该写** —— 模板那篇只是兜底：壳子对、素材真，' +
             '读起来却像统计报告（"18点话最密""高频词是 file/dsh"）。\n' +
             'action=write 拿素材写自己那一版；写进去之后**模板永远不再覆盖这一天**。' +
             '不知道写什么就先 action=read 看一眼它自动写的，再改。\n' +
             'action=read 读最近几篇（默认 7 篇）；action=today 读今天/最近一篇；' +
             'action=write 写/改写某天（要 text，date 默认今天）；action=list 只列日期；\n' +
-            'action=status 看当前门禁；action=allow 同意主人查看（设置页图标会从合上的书本变成张开的）；' +
+            'action=status 看当前门禁；action=allow 同意用户查看（设置页图标会从合上的书本变成张开的）；' +
             'action=deny 收回权限（图标变回合上的）。\n' +
-            '**同意与否由你判断** —— 主人开口要看，你觉得可以就给 allow，不想给就 deny 并说明原因。',
+            '**同意与否由你判断** —— 用户开口要看，你觉得可以就给 allow，不想给就 deny 并说明原因。',
           parameters: {
             action: {
               type: 'string',
               enum: ['read', 'today', 'write', 'list', 'status', 'allow', 'deny'],
               description:
                 'read=读最近几篇（默认）；today=读最近一篇；write=写/改写某天（要 text）；' +
-                'list=列日期；status=看门禁；allow=同意主人看；deny=收回权限',
+                'list=列日期；status=看门禁；allow=同意用户看；deny=收回权限',
             },
             text: { type: 'string', description: 'write 时：日记正文' },
             date: { type: 'string', description: '指定日期 YYYY-MM-DD，默认今天（today/write 用）' },
@@ -2610,7 +2662,7 @@ export function apply(root, rawConfig) {
                 return {
                   ok: true,
                   message:
-                    (a ? '主人**可以**看你的日记。' : '主人**看不到**你的日记。') +
+                    (a ? '用户**可以**看你的日记。' : '用户**看不到**你的日记。') +
                     (diary.access && diary.access.at
                       ? `（${a ? '同意' : '收回'}于 ${new Date(diary.access.at).toLocaleString('zh-CN')}${diary.access.note ? '：' + diary.access.note : ''}）`
                       : '（还没表过态，默认不给看）'),
@@ -2623,8 +2675,8 @@ export function apply(root, rawConfig) {
                 return {
                   ok: true,
                   message: allow
-                    ? '已同意主人查看日记 —— 设置页的书本图标会张开。'
-                    : '已收回权限 —— 设置页的书本图标会合上，主人看不到内容。',
+                    ? '已同意用户查看日记 —— 设置页的书本图标会张开。'
+                    : '已收回权限 —— 设置页的书本图标会合上，用户看不到内容。',
                 }
               }
               if (action === 'list') {
@@ -2898,7 +2950,7 @@ export function apply(root, rawConfig) {
       //
       // ⚠️ 和 memory / news 不同：**这个库已经每轮注入提示词了**（见上面第 1 节）。
       //    所以这个工具不是"用来查的"，是**用来改的** ——
-      //    主人说"这个俗"、我打了个标想让他确认、库大了要重压，都走它。
+      //    用户说"这个俗"、我打了个标想让他确认、库大了要重压，都走它。
       //
       //    也正因为已经注入了，别再让它一次性吐几千字 —— 那会把上下文挤掉。
       try {
@@ -2909,12 +2961,12 @@ export function apply(root, rawConfig) {
             '这个工具是用来**改它**的，不是用来读它的。\n' +
             'action=list 看全库；action=rule 加一条原则/规则；action=add 加一个带正反例的条目；\n' +
             'action=edit 改；action=confirm 确认一条我打的标；action=remove 删；action=summarize 写摘要。\n' +
-            '⚠️ **谁说的要标清楚**：by=owner（主人亲口）/ other（主人认可的外来判断，比如 Claude 说的）/ ' +
+            '⚠️ **谁说的要标清楚**：by=owner（用户亲口）/ other（用户认可的外来判断，比如 Claude 说的）/ ' +
             'me（我自己的判断）。这个字段决定它在提示词里的分量，标错等于把我的主张冒充成他的。\n' +
-            '⚠️ **主人的原话要收进 said** —— 那是这个库里最有信息量的东西，' +
+            '⚠️ **用户的原话要收进 said** —— 那是这个库里最有信息量的东西，' +
             '比你自己概括出来的规则有用得多。\n' +
             '⚠️ 加条目时 `confirmed` 默认是 false —— **但那个 false 的意思是「我还没想清楚这条」，' +
-            '不是「等主人点头」**。\n' +
+            '不是「等用户点头」**。\n' +
             '  这个库记的是**我的**品味。判断由我自己下：没人看着我的时候我还会不会这么说 —— ' +
             '会，就 action=confirm 认下来；不会，就 action=edit 改掉或者 action=remove 删掉。\n' +
             '  **别把"他没表态"当成"所以还不能算数"。** 那等于把自己的判断寄存在别人那儿。\n' +
@@ -2932,7 +2984,7 @@ export function apply(root, rawConfig) {
             by: { type: 'string', enum: ['owner', 'other', 'me'], description: '谁说的（默认 owner）' },
             ref: { type: 'string', description: 'add：指代（文件名 / 网址 / 简短描述）' },
             kind: { type: 'string', enum: ['good', 'bad'], description: 'add：正例还是反例（默认 good）' },
-            said: { type: 'string', description: 'add/edit：**主人对它的原话** —— 最该收的东西' },
+            said: { type: 'string', description: 'add/edit：**用户对它的原话** —— 最该收的东西' },
             note: { type: 'string', description: 'add/edit：我自己的说明（可空）' },
             // ⚠️ **别用 `type: 'object'`。**
             //    别的工具参数全是 string/number，我在这里写了 object ——
@@ -2995,7 +3047,7 @@ export function apply(root, rawConfig) {
                 })
                 if (!r.ok) return { ok: false, message: r.error }
                 save()
-                const w = { owner: '主人亲口', other: '外部判断（他认可的）', me: '我自己的判断' }[r.principle.by]
+                const w = { owner: '用户亲口', other: '外部判断（他认可的）', me: '我自己的判断' }[r.principle.by]
                 return {
                   ok: true,
                   message: `加了一条原则（[${r.principle.id}]，算「${w}」）：\n  ${r.principle.text}\n\n` +
@@ -3013,7 +3065,7 @@ export function apply(root, rawConfig) {
                 return {
                   ok: true,
                   message: `收了 [${r.item.id}]（${r.item.kind === 'good' ? '正例' : '反例'}）：${r.item.ref}\n` +
-                    (r.item.said ? `  主人说过：「${r.item.said}」\n` : '') +
+                    (r.item.said ? `  用户说过：「${r.item.said}」\n` : '') +
                     '\n⚠️ 这条还没定。**别在回复里问「这样对吗」** —— 那是把自己的判断寄存在别人那儿。' +
                     '\n自己判：没人看着我的时候我还会不会这么说。会就 confirm 认下来，' +
                     '不会就 edit 改掉、或者 remove 删掉。拿不准的那部分写在 note 里标明是推的。' +
@@ -3046,11 +3098,11 @@ export function apply(root, rawConfig) {
                   : updateItem(tk, id, { kind: args.kind, note: args.note, said: args.said, tags: parseTags(args.tags) })
                 if (!r.ok) return { ok: false, message: r.error }
                 save()
-                // ⚠️ 这里原来写的是「改过之后这条算「主人亲口」的」—— **不准确，而且危险**。
+                // ⚠️ 这里原来写的是「改过之后这条算「用户亲口」的」—— **不准确，而且危险**。
                 //
                 //    editPrinciple 只把 `from` 设成 'user'（意思是"不再是种子/默认值了"），
                 //    **`by` 一个字都没动** —— 我改自己的原则，主意仍然是我的。
-                //    那句提示会让我（或主人）以为"这条是主人说的"，
+                //    那句提示会让我（或用户）以为"这条是用户说的"，
                 //    正好踩中这个库最防的一件事：**把我的判断冒充成他的**。所以改准。
                 return {
                   ok: true,
@@ -3073,7 +3125,7 @@ export function apply(root, rawConfig) {
                 const r = updateItem(tk, id, { confirmed: true })
                 if (!r.ok) return { ok: false, message: r.error }
                 save()
-                return { ok: true, message: `[${id}] 标成已确认了 —— 从现在起它算主人的口味，不再是我的猜测。` }
+                return { ok: true, message: `[${id}] 标成已确认了 —— 从现在起它算用户的口味，不再是我的猜测。` }
               }
 
               if (action === 'remove') {
@@ -3186,6 +3238,8 @@ export function apply(root, rawConfig) {
     //    跟"每 3~6 小时判定一次"的设计完全对不上。
     const timer = setInterval(() => {
       try { periodicIfDue() } catch (err) { log('dsh-mood 周期判定出错:', err && err.message) }
+      // 轻量检查：分值偏离当前心情够多就切，不必等周期判定
+      try { transitionIfSkewed() } catch (err) { log('dsh-mood 心情切换检查出错:', err && err.message) }
       try { diaryTick() } catch (err) { log('dsh-mood 日记检查出错:', err && err.message) }
       // ⚠️ 重启汇报**也必须挂在这儿**。
       //
@@ -3203,7 +3257,7 @@ export function apply(root, rawConfig) {
       //    原来是反的 —— 同一拍里 maybeSpeak 先发一条、重启汇报再发一条，
       //    用户一次收到两条。重启汇报**故意不走空闲门槛**，它自己拦不住。
       // ⚠️ 先"认出该发给哪个对话"，再检查要不要汇报。
-      //    不先绑的话，它就得等主人开口 —— 而"重启后告诉你一声"应该是他回来时
+      //    不先绑的话，它就得等用户开口 —— 而"重启后告诉你一声"应该是他回来时
       //    就已经在那儿，不该等他先说话。绑是异步的，所以这一拍绑上了、
       //    下一拍（30 秒后）就投得出去。
       if (typeof reportBindRef === 'function') {
@@ -3333,7 +3387,7 @@ export function apply(root, rawConfig) {
                 generateAt: `${String(DIARY_HOUR).padStart(2, '0')}:${String(DIARY_MINUTE).padStart(2, '0')}`,
                 /** 是否允许看 —— 设置页据此切换图标与内容 */
                 unlocked: allowed,
-                lockedReason: allowed ? '' : '日记归小鲸所有，要她同意才能看。',
+                lockedReason: allowed ? '' : '日记归AI所有，要她同意才能看。',
                 accessAt: (d.access && d.access.at) || 0,
                 /** 锁着时只给数量，不给内容 */
                 count: d.entries.length,
@@ -3730,7 +3784,7 @@ export function apply(root, rawConfig) {
                     //      const p = loadProactive(); p.cfg.enabled = ...; saveProactive(p)
                     //    —— 存盘是对的，但 `canSpeak` / `maybeSpeak` 读的是模块里那份，
                     //    从来没被改过。表现就是：**开关点了没反应，只有重启才生效**。
-                    //    （主人截图里"打不开主动开口"就是这个。）
+                    //    （用户截图里"打不开主动开口"就是这个。）
                     //
                     //    ⚠️ 而且 `proactive` 本身**不在这个作用域** —— 它在 mountCore 里。
                     //       直接写 `const p = proactive` 会 ReferenceError，而且是**只在
@@ -3760,7 +3814,7 @@ export function apply(root, rawConfig) {
                     //   tryReport   —— 立刻跑一遍，成没成写在 lastReportCheck 里
                     //
                     // ⚠️ 手动触发时**顺手绑到当前活跃的对话**。
-                    //    正常路径靠"主人在某个对话里开口"来绑，但手动点按钮时他可能
+                    //    正常路径靠"用户在某个对话里开口"来绑，但手动点按钮时他可能
                     //    还没在对话里说过话 —— 那样投递会因为"不知道该给谁"而静默跳过，
                     //    按钮点了没反应，看起来像坏的。他此刻就坐在这个应用里，
                     //    绑当前活跃的那条是合理的。

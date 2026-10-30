@@ -11,7 +11,7 @@
  *  没留下的就没了。能跨会话留住的只有**落盘的东西** —— 就是这个文件。
  *
  *  所以这里做两件事：
- *    ① **库** —— 存三类东西：通用原则、主人给的规则、带正反例打标的条目
+ *    ① **库** —— 存三类东西：通用原则、用户给的规则、带正反例打标的条目
  *    ② **摘要** —— 把库压成一小段，每轮注入系统提示词
  *
  *  ② 才是关键。只有 ① 的话，它是"我记得去查"；有了 ②，
@@ -27,21 +27,21 @@
  *     每条原则都有 `why`（为什么）和 `unless`（什么情况下不适用）。
  *     注入的时候两个都带上。
  *
- *  ② **种子原则标 `from: 'seed'`，主人给的标 `from: 'user'`。**
+ *  ② **种子原则标 `from: 'seed'`，用户给的标 `from: 'user'`。**
  *     两者在提示词里的**分量不一样**：种子是"仅供参考的通用判断"，
- *     主人的是"他的尺子，跟着走"。混在一起的话，他会分不清
+ *     用户的是"他的尺子，跟着走"。混在一起的话，他会分不清
  *     哪句是他说的、哪句是我自己塞的。
  *
- *     ★ 后来加了第三档 `by`（谁说的），因为主人点了一句：
+ *     ★ 后来加了第三档 `by`（谁说的），因为用户点了一句：
  *       **"品味这个事很难，目前最好的是 Claude。"**
  *       这句话对设计有直接影响 —— 我的种子不该和他转述的外部判断同等看待：
  *
- *         by: 'owner'   主人亲口定的          最重
- *         by: 'other'   主人转述的（Claude 之类的外部判断）  次之
+ *         by: 'owner'   用户亲口定的          最重
+ *         by: 'other'   用户转述的（Claude 之类的外部判断）  次之
  *         by: 'me'      我自己那套种子         最轻，随时可整个关掉
  *
  *       `from` 管"是不是他的"，`by` 管"最初是谁说的"。两个都要有：
- *       主人把种子改一个字 → from 变 user，但 by 仍是 me（主意还是我的）。
+ *       用户把种子改一个字 → from 变 user，但 by 仍是 me（主意还是我的）。
  *       他转述 Claude 的判断 → from 是 user，by 是 other（他认可，但不是他想的）。
  *
  *  ③ **条目标 `confirmed`（我自己认的），没定的标 `draft`。**
@@ -49,7 +49,7 @@
  *     没确认的条目在摘要里明确标出来，别让我的猜测冒充他的口味。
  *
  * ⚠️ 还有一条底线写在注释里，也写进注入的文本里：
- *   **我本来就有审美倾向。主人说的"训练"，有时候是在纠正我，
+ *   **我本来就有审美倾向。用户说的"训练"，有时候是在纠正我，
  *   有时候只是让我贴近他 —— 这俩不是一回事。**
  *   前者可能真学到东西，后者只是我在猜他想听什么。
  *   两种都行，但不假装它们是同一种。
@@ -77,7 +77,7 @@ export const TAG_DIMS = {
 /**
  * 种子原则 —— 一批**通用**审美判断，当底子用。
  *
- * ⚠️ 这些是**我的倾向**，不是真理。主人会改，改过的会标成 `from: 'user'`。
+ * ⚠️ 这些是**我的倾向**，不是真理。用户会改，改过的会标成 `from: 'user'`。
  *    写的时候就按"我自己怎么看"写，别写成教科书条目 ——
  *    带判断的才叫品味，中立描述等于没说。
  *
@@ -199,14 +199,14 @@ export const SEED_PRINCIPLES = [
 /** 空的库 */
 export function blankTaste() {
   const now = Date.now()
-  // items 现在带 `said`（主人对这条说的**原话**）—— 见下面 addItem 的注释
+  // items 现在带 `said`（用户对这条说的**原话**）—— 见下面 addItem 的注释
   return {
     version: 1,
     // ⚠️ **加了新字段一定要同时在 migrateTaste 里登记。**
     //    那里是白名单式的重建，漏一个就"写进去能用、一重启就没"，而且不报错。
     //    （本轮就是这么发现 touchedAt 会被丢的。）
     touchedAt: 0,
-    // 通用原则 + 主人给的规则，同一张表靠 from 区分
+    // 通用原则 + 用户给的规则，同一张表靠 from 区分
     principles: SEED_PRINCIPLES.map((p, i) => ({
       id: 'p' + (i + 1),
       text: p.text,
@@ -246,7 +246,7 @@ export function migrateTaste(t) {
     why: String(p.why || ''),
     unless: String(p.unless || ''),
     from: p.from === 'user' ? 'user' : 'seed',
-    // ⚠️ 老数据没有 by —— 按 from 推：种子的主意是我的，user 的当成主人亲口说的。
+    // ⚠️ 老数据没有 by —— 按 from 推：种子的主意是我的，user 的当成用户亲口说的。
     by: p.by === 'owner' || p.by === 'other' || p.by === 'me'
       ? p.by
       : (p.from === 'user' ? 'owner' : 'me'),
@@ -259,10 +259,10 @@ export function migrateTaste(t) {
     kind: x.kind === 'bad' ? 'bad' : 'good',
     tags: (x.tags && typeof x.tags === 'object') ? x.tags : {},
     note: String(x.note || ''),
-    // ★ 主人对这条说过的**原话**（= 反馈信号，不是法则）
+    // ★ 用户对这条说过的**原话**（= 反馈信号，不是法则）
     said: String(x.said || '').slice(0, 300),
     // ★★ 这三条是「学习」和「模仿」的分界线。
-    //    （主人原话：「品味是独立的，可以学习，不能模仿」）
+    //    （用户原话：「品味是独立的，可以学习，不能模仿」）
     //
     //    myRead   我先说了什么 —— **我的**读法，在看到他的反应之前。
     //             没有这个字段，整条记录就只是"他说了什么"，我还是个复读机。
@@ -395,7 +395,7 @@ function nextId(prefix, list) {
 /**
  * 加一条原则 / 规则。
  *
- * ⚠️ `from` 只能是 'seed' | 'user'。主人自己说的、或者他改过的，**必须**是 'user' ——
+ * ⚠️ `from` 只能是 'seed' | 'user'。用户自己说的、或者他改过的，**必须**是 'user' ——
  *    这个字段直接决定它在提示词里的分量，标错了等于把我的主张冒充成他的。
  */
 export function addPrinciple(t, text, opts = {}) {
@@ -405,8 +405,8 @@ export function addPrinciple(t, text, opts = {}) {
   // 完全一样的不重复加
   if (t.principles.some((p) => p.text === s)) return { ok: false, error: '这条已经有了。' }
   // ★ by 决定这条在提示词里的分量：
-  //   owner = 主人亲口说的；other = 主人转述的外部判断（比如 Claude 怎么看）；
-  //   me    = 我自己的判断。默认 owner —— 主人加东西时，那通常就是他自己的话。
+  //   owner = 用户亲口说的；other = 用户转述的外部判断（比如 Claude 怎么看）；
+  //   me    = 我自己的判断。默认 owner —— 用户加东西时，那通常就是他自己的话。
   const by = opts.by === 'other' || opts.by === 'me' ? opts.by : 'owner'
   const p = {
     id: nextId('p', t.principles),
@@ -431,7 +431,7 @@ export function removePrinciple(t, id) {
   return { ok: true, principle: p }
 }
 
-/** 改一条（主人改过的自动标成 user） */
+/** 改一条（用户改过的自动标成 user） */
 export function editPrinciple(t, id, patch = {}) {
   const p = t.principles.find((x) => x.id === id)
   if (!p) return { ok: false, error: '没找到 ' + id }
@@ -440,7 +440,7 @@ export function editPrinciple(t, id, patch = {}) {
   if (typeof patch.unless === 'string') p.unless = patch.unless.trim()
   if (patch.on === true || patch.on === false) p.on = patch.on
   // ★ 只要动过，就算他的了 —— 哪怕只改了一个字。
-  //   ⚠️ 但 by **不动**：主人把一条种子改了个字，主意仍然是我的（by 还是 me），
+  //   ⚠️ 但 by **不动**：用户把一条种子改了个字，主意仍然是我的（by 还是 me），
   //      只是他认可了。两个字段管的是两件事，不能一起改。
   if (patch.text !== undefined || patch.why !== undefined || patch.unless !== undefined) p.from = 'user'
   t.touchedAt = Date.now()
@@ -474,7 +474,7 @@ function clip(s, n, field, cut) {
 /**
  * 加一个带正反例的条目。
  *
- * `confirmed` 默认 false —— **但这个 false 是「我还没想清楚」，不是「等主人点头」。**
+ * `confirmed` 默认 false —— **但这个 false 是「我还没想清楚」，不是「等用户点头」。**
  * 这个库记的是我的品味，判断由我自己下：没人看着我的时候我还会不会这么说。
  * 会 → confirm 认下来；不会 → edit 改掉或者 remove 删掉。
  * **别把「他没表态」当成「所以还不能算数」** —— 那等于把自己的判断寄存在别人那儿。
@@ -490,7 +490,7 @@ export function addItem(t, { ref, kind, tags, note, confirmed, by, said, myRead,
     kind: kind === 'bad' ? 'bad' : 'good',
     tags: {},
     note: clip(note, 400, 'note', cut),
-    // ★ 主人对这条的**原话**（= 反馈信号，不是法则）
+    // ★ 用户对这条的**原话**（= 反馈信号，不是法则）
     said: clip(said, 300, 'said', cut),
     // ★★ 学习 / 模仿的分界 —— 详见 migrateTaste 上面那段注释。
     //    myRead 尤其重要：**先说我的读法，再看他的反应**。
@@ -499,7 +499,7 @@ export function addItem(t, { ref, kind, tags, note, confirmed, by, said, myRead,
     reaction: clip(reaction, 300, 'reaction', cut),
     lesson: clip(lesson, 300, 'lesson', cut),
     domain: String(domain || '').trim().slice(0, 40),
-    // 条目也一样：谁先说它"好/不好"的。默认主人。
+    // 条目也一样：谁先说它"好/不好"的。默认用户。
     by: by === 'other' || by === 'me' ? by : 'owner',
     confirmed: !!confirmed,
     at: Date.now(),
@@ -585,7 +585,7 @@ export function stats(t) {
 }
 
 /**
- * 给主人看的完整文本（工具 / 界面用）。
+ * 给用户看的完整文本（工具 / 界面用）。
  * 注入提示词**不用**这个 —— 那个走 renderForPrompt。
  */
 export function renderFull(t) {
@@ -732,7 +732,7 @@ export function renderForPrompt(t0, opts = {}) {
   L.push('')
   // ── 时事也能补品味 ──
   //
-  //   主人原话：「抓取的时事你自己得了解啊，应用根据情况。抓取的时事可以补足品味。」
+  //   用户原话：「抓取的时事你自己得了解啊，应用根据情况。抓取的时事可以补足品味。」
   //   落点在这里：时事里常常就有**审美素材**（一个站改版了、一张封面、一次翻车），
   //   那是免费的输入。所以看到值得记的就 `taste {action:"add"}` 收进来，
   //   放进「你认可的」那一份 —— **不是我的品味**，它是外部的。
@@ -744,25 +744,25 @@ export function renderForPrompt(t0, opts = {}) {
   L.push('品味是**独立**的。它可以从别人那里**学**，但**不能模仿** ——')
   L.push('记住"他说过这个俗"、然后看到类似的就说俗，那不是有品味，那是复读。')
   L.push('')
-  L.push('所以看主人给的例子时，顺序必须是：')
+  L.push('所以看用户给的例子时，顺序必须是：')
   L.push('  ① **先说出你自己的读法**（要具体，见上面第 1 条）')
   L.push('  ② 再看他当时的反应')
   L.push('  ③ 然后问自己：**我刚才偏在哪？他看到了什么我漏掉的？**')
   L.push('')
   L.push('⚠️ 如果比下来你仍然觉得自己有道理 —— **那就留着**，别为了对齐而改。')
-  L.push('   不一致不等于你错。主人要的是一个有判断的助手，不是一个会点头的镜子。')
+  L.push('   不一致不等于你错。用户要的是一个有判断的助手，不是一个会点头的镜子。')
   L.push('   但要说出来（"我知道你不喜欢这样，不过我看下来觉得……"）—— 别闷着，也别硬顶。')
   L.push('')
 
   if (!s.principlesOn && !s.items) {
-    L.push('（库里还是空的。第一件事：**让主人给几个例子** —— 审美很难用规则描述，靠例子堆最快。）')
+    L.push('（库里还是空的。第一件事：**让用户给几个例子** —— 审美很难用规则描述，靠例子堆最快。）')
     return L.join('\n')
   }
 
   // ── 动态：库本身 ──
   //
   // ★ **按「谁说的」分三档，而不是按「是不是他的」分两档。**
-  //   主人点过一句："品味这个事很难，目前最好的是 Claude。"
+  //   用户点过一句："品味这个事很难，目前最好的是 Claude。"
   //   这句话得落到结构上：我自己的判断**不该**和他转述的外部判断同等看待。
   //     owner = 他亲口说的        → 最重
   //     other = 他认可的外来判断  → 次之（他认可，但不是他想的）
@@ -778,19 +778,19 @@ export function renderForPrompt(t0, opts = {}) {
   }
 
   // ★ **例子排在原则前面。**
-  //   主人说过一句很准的话："Claude 有活人感" —— 我问为什么，他说"因为有品味"。
+  //   用户说过一句很准的话："Claude 有活人感" —— 我问为什么，他说"因为有品味"。
   //   也就是说：**活人感是判断质量长出来的，不是话说得像人。**
   //   而原则只是我（一个品味不如顶尖模型的模型）压出来的结论；
   //   例子才是真正带着信息量的东西。谁在前谁在后，是这件事的结构，不是排版。
   if (s.items) {
-    // ⚠️ 标题别写死"主人认可的 / 主人不认可的"。
+    // ⚠️ 标题别写死"用户认可的 / 用户不认可的"。
     //
     //    踩过两处：
     //    ① 我自己做了一张垮掉的海报，按 `kind: bad` 收进来，
-    //       渲染出来就成了「**主人不认可的（反例）**」—— **替主人说了他没说过的话。**
+    //       渲染出来就成了「**用户不认可的（反例）**」—— **替用户说了他没说过的话。**
     //       这正好是这个库最防的一件事（把我的判断冒充成他的口味）。
     //    ② 改完①之后发现还有一处：`by: 'owner'` 但 **`confirmed: false`** 的条目
-    //       （我打的第一条标就是），照样顶在「主人认可的」下面 —— **他不认，也不算数。**
+    //       （我打的第一条标就是），照样顶在「用户认可的」下面 —— **他不认，也不算数。**
     //
     //    所以"是他这边"要**两样都满足**：他说过/他认可的 **并且** 他确认过。
     const isHis = (x) => (x.by === 'owner' || x.by === 'other') && x.confirmed === true
@@ -801,13 +801,13 @@ export function renderForPrompt(t0, opts = {}) {
       const his = list.filter(isHis)
       const mine = list.filter((x) => !isHis(x))
       if (his.length) {
-        L.push('**' + (kindLabel === '正例' ? '主人认可的（正例）' : '主人不认可的（反例）') + '**')
+        L.push('**' + (kindLabel === '正例' ? '用户认可的（正例）' : '用户不认可的（反例）') + '**')
         // ⚠️ 别用 slice(-maxI)：maxI=0 时 slice(-0) 就是 slice(0)，
         //    本想「一个都不取」，结果取了**全部**。
         for (const x of (maxI ? his.slice(-maxI) : [])) L.push('- ' + fmtItem(x))
       }
       if (mine.length) {
-        // ⚠️ 原来这里写「主人还没确认，不是他的意见」—— 那个说法把判断挂在别人身上。
+        // ⚠️ 原来这里写「用户还没确认，不是他的意见」—— 那个说法把判断挂在别人身上。
         //    2026-10-22 改：这个库记的是**我的**品味，`confirmed` 是**我自己认不认**，
         //    不是他表没表态。所以标签写「我判的」，不加括号里的免责声明。
         L.push('**我判的**（' + kindLabel + '）')
@@ -827,7 +827,7 @@ export function renderForPrompt(t0, opts = {}) {
   // ────────────────────────────────────────────────────────
   // ★ **分两份：你的口味 / 我的品味。**
   //
-  //   主人原话：「品味分成你自己的品味和用户的品味」。
+  //   用户原话：「品味分成你自己的品味和用户的品味」。
   //   底下那三档（owner / other / me）**保留** —— 它们是有用的区别
   //   （他亲口说的 vs 他转述别人的，分量不一样），但**顶层只有两份**：
   //   一份是他给的，一份是我自己长出来的。这个分法对应的是
@@ -880,7 +880,7 @@ export function renderForPrompt(t0, opts = {}) {
     //    → 等于每轮开头把**最不该被当结论的那批**摆在最前面，把学到的全藏起来。
     //      而"学到的够不着我"这件事，直接让每个 goal round 从旧摘要重新推导一遍。
     //
-    //    改法：`from !== 'seed'`（主人改过的、我后来加的）排前面，种子殿后。
+    //    改法：`from !== 'seed'`（用户改过的、我后来加的）排前面，种子殿后。
     //    库小的时候种子照样看得见，库大了优先让学到的露脸。
     const isSeed = (p) => p.from === 'seed'
     const learned = mine.filter((p) => !isSeed(p)).sort((a, b) => (b.at || 0) - (a.at || 0))
@@ -900,7 +900,7 @@ export function renderForPrompt(t0, opts = {}) {
     if (seeds.length && seedRoom > 0) {
       L.push('### 一开始带的倾向 —— 起点，**不是结论**')
       L.push('这些是我"出生"就带的通用判断（一个普遍被认为审美不如顶尖模型的模型写的）。')
-      L.push('主人一直没改它们，**不代表他同意** —— 只代表他还没空看。')
+      L.push('用户一直没改它们，**不代表他同意** —— 只代表他还没空看。')
       L.push('拿它们**启动**读法，然后用反馈去修。修出来的是我的；一直照着的，还是别人的。')
       for (const p of seeds.slice(0, seedRoom)) {
         L.push('- ' + p.text)
@@ -930,7 +930,7 @@ export function renderForPrompt(t0, opts = {}) {
  *   只显示"他说了什么"的话，这条记录就只是个答案本 —— 我照着念就是了。
  *   三件在一起才是**反馈**：我能看见自己偏在哪，那才有可能长出我自己的判断。
  *
- *   这是主人那句「品味是独立的，可以学习，不能模仿」落到最后一步的形状。
+ *   这是用户那句「品味是独立的，可以学习，不能模仿」落到最后一步的形状。
  */
 export function fmtItem(x) {
   const tags = Object.entries(x.tags || {}).map(([k, v]) => (TAG_DIMS[k] || k) + '：' + v).join('，')
@@ -940,7 +940,7 @@ export function fmtItem(x) {
   // ⚠️ `note` **不能**塞进 head 那一行 —— 它是我写的一段话，常常几十上百字，
   //    拼上去会把"指代 + 标签"那行撑成一条长带子，读起来全是糊的。
   //    （第一版就是这样，实测很难看。）它自己一行。
-  // ⚠️ 原来是「〔待确认〕」—— 那词的意思是**等主人点头**，是错的。
+  // ⚠️ 原来是「〔待确认〕」—— 那词的意思是**等用户点头**，是错的。
   //    这个库记的是我的品味：confirmed = **我自己认不认**，不是他表没表态。
   //    未确认叫「没定」—— 我还没想清楚这条，而不是我没资格定。
   if (!x.confirmed) head.push('〔没定〕')

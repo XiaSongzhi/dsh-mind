@@ -1,0 +1,2849 @@
+/* ═══════════════════════════════════════════════════════════════════
+   AI · 记忆宇宙 —— 前端应用层
+   ───────────────────────────────────────────────────────────────────
+   职责：数据获取、视图切换、星图交互编排、各页面渲染
+   不改后端：只用现有 HTTP 接口
+   ═══════════════════════════════════════════════════════════════════ */
+
+/* ───────────── 常量 ───────────── */
+
+const KIND_META = {
+  episode:      { label: '事件',   hue: 216 },
+  fact:         { label: '事实',   hue: 194 },
+  reflection:   { label: '反思',   hue: 40 },
+  skill:        { label: '技能',   hue: 262 },
+  lesson:       { label: '教训',   hue: 30 },
+  procedural:   { label: '程序',   hue: 174 },
+  emotion_event:{ label: '情绪',   hue: 336 },
+  media:        { label: '媒体',   hue: 220 },
+  preference:   { label: '偏好',   hue: 280 },
+  relationship: { label: '关系',   hue: 288 },
+  promise:      { label: '约定',   hue: 158 },
+  plan:         { label: '计划',   hue: 200 },
+  profile:      { label: '画像',   hue: 46 },
+  conflict:     { label: '冲突',   hue: 352 },
+  insight:      { label: '洞察',   hue: 50 },
+  milestone:    { label: '里程碑', hue: 0 },
+  entity:       { label: '实体',   hue: 150 },
+}
+
+const SLEEP_LABEL = { awake: '清醒', preparing: '将睡', sleeping: '沉睡', recovering: '将醒' }
+const SLEEP_DESC = {
+  awake: '正常活动，会回复消息',
+  preparing: '睡前宽限期，来消息会取消',
+  sleeping: '睡着中，不回复任何人',
+  recovering: '正在醒，缓冲后恢复',
+}
+
+/* 星团主题色板：与 universe.js 的 themeOf 对应 */
+const CLUSTER_THEME = {
+  core:      { hue: 48,  sat: 78, lum: 68, label: '核心' },
+  emotion:   { hue: 336, sat: 62, lum: 66, label: '情绪' },
+  curious:   { hue: 200, sat: 66, lum: 64, label: '好奇' },
+  happy:     { hue: 44,  sat: 72, lum: 66, label: '开心' },
+  tired:     { hue: 232, sat: 52, lum: 62, label: '疲惫' },
+  calm:      { hue: 174, sat: 48, lum: 60, label: '安心' },
+  relation:  { hue: 288, sat: 58, lum: 68, label: '关系' },
+  daily0:    { hue: 208, sat: 46, lum: 64, label: '清晨' },
+  daily1:    { hue: 198, sat: 44, lum: 62, label: '上午' },
+  daily2:    { hue: 214, sat: 48, lum: 63, label: '午后' },
+  daily3:    { hue: 228, sat: 42, lum: 60, label: '傍晚' },
+  daily4:    { hue: 240, sat: 46, lum: 62, label: '深夜' },
+  daily5:    { hue: 188, sat: 40, lum: 58, label: '闲聊' },
+  work:      { hue: 192, sat: 40, lum: 58, label: '工作' },
+  sleep:     { hue: 258, sat: 54, lum: 64, label: '睡眠' },
+  future:    { hue: 158, sat: 52, lum: 62, label: '计划' },
+  knowledge: { hue: 172, sat: 46, lum: 58, label: '认知' },
+  reflect:   { hue: 268, sat: 50, lum: 66, label: '自省' },
+  entity:    { hue: 150, sat: 40, lum: 54, label: '实体' },
+}
+
+/* ───────────── 工具 ───────────── */
+
+const $ = (id) => document.getElementById(id)
+const el = (tag, cls, html) => {
+  const e = document.createElement(tag)
+  if (cls) e.className = cls
+  if (html != null) e.innerHTML = html
+  return e
+}
+
+function esc(s) {
+  return String(s == null ? '' : s).replace(/[&<>"']/g, (c) => ({
+    '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#39;',
+  }[c]))
+}
+
+function hslToHex(h, s, l) {
+  h = ((h % 360) + 360) % 360
+  s /= 100; l /= 100
+  const c = (1 - Math.abs(2 * l - 1)) * s
+  const x = c * (1 - Math.abs(((h / 60) % 2) - 1))
+  const m = l - c / 2
+  let r = 0, g = 0, b = 0
+  if (h < 60) { r = c; g = x } else if (h < 120) { r = x; g = c }
+  else if (h < 180) { g = c; b = x } else if (h < 240) { g = x; b = c }
+  else if (h < 300) { r = x; b = c } else { r = c; b = x }
+  const f = (v) => Math.max(0, Math.min(255, Math.round((v + m) * 255))).toString(16).padStart(2, '0')
+  return f(r) + f(g) + f(b)
+}
+
+function kindColor(kind) {
+  const m = KIND_META[kind]
+  return m ? '#' + hslToHex(m.hue, 62, 64) : '#7A8098'
+}
+function kindLabel(kind) {
+  return KIND_META[kind] ? KIND_META[kind].label : (kind || '记忆')
+}
+
+function relTime(ts) {
+  if (!ts) return '—'
+  const d = Date.now() - ts
+  const m = Math.floor(d / 60000)
+  if (m < 1) return '刚刚'
+  if (m < 60) return m + ' 分钟前'
+  const h = Math.floor(m / 60)
+  if (h < 24) return h + ' 小时前'
+  const day = Math.floor(h / 24)
+  if (day < 30) return day + ' 天前'
+  return new Date(ts).toLocaleDateString('zh-CN')
+}
+
+function fmtDate(ts) {
+  if (!ts) return '—'
+  const d = new Date(ts)
+  return d.getFullYear() + '-' +
+    String(d.getMonth() + 1).padStart(2, '0') + '-' +
+    String(d.getDate()).padStart(2, '0') + ' ' +
+    String(d.getHours()).padStart(2, '0') + ':' +
+    String(d.getMinutes()).padStart(2, '0')
+}
+
+function fmtClock(ts) {
+  if (!ts) return '—'
+  const d = new Date(ts)
+  return String(d.getHours()).padStart(2, '0') + ':' +
+    String(d.getMinutes()).padStart(2, '0')
+}
+
+/* ───────────── HTTP ───────────── */
+
+async function api(path, opt) {
+  const o = Object.assign({ headers: { 'x-dsh-mind': '1' } }, opt || {})
+  let res
+  try {
+    res = await fetch(path, o)
+  } catch (e) {
+    throw new Error('无法连接服务')
+  }
+  if (!res.ok) {
+    let msg = 'HTTP ' + res.status
+    try {
+      const j = await res.json()
+      if (j && j.error) msg = j.error
+    } catch (e) {}
+    throw new Error(msg)
+  }
+  const ct = res.headers.get('content-type') || ''
+  if (!ct.includes('json')) return null
+  return res.json()
+}
+
+function post(path, body) {
+  return api(path, {
+    method: 'POST',
+    headers: { 'x-dsh-mind': '1', 'content-type': 'application/json' },
+    body: JSON.stringify(body || {}),
+  })
+}
+
+/* ───────────── 全局状态 ───────────── */
+
+let U = null                       // 星图引擎实例
+let RAW = { nodes: [], edges: [] } // 原始图数据
+let ALL_MEM = []                   // 面板层用的记忆列表
+let currentView = 'sky'
+let memShown = 200
+let modalId = null
+let selectedCluster = null
+const kindFilters = new Set()      // 空集合 = 全部
+
+/* ───────────── Toast ───────────── */
+
+let toastTimer = null
+function toast(msg, kind) {
+  const t = $('toast')
+  if (!t) return
+  t.textContent = msg
+  t.className = 'toast show' + (kind ? ' ' + kind : '')
+  clearTimeout(toastTimer)
+  toastTimer = setTimeout(() => { t.className = 'toast' + (kind ? ' ' + kind : '') }, 2600)
+}
+
+function loadingHtml(text) {
+  return '<div class="loading-state"><span class="spinner"></span><span>' + esc(text || '加载中') + '</span></div>'
+}
+function errorHtml(msg, retryLabel) {
+  return '<div class="error-state"><div class="msg">读取失败</div>' +
+    '<div class="detail">' + esc(msg || '') + '</div>' +
+    (retryLabel ? '<button class="btn btn-ghost btn-sm" style="margin-top:8px">重试</button>' : '') +
+    '</div>'
+}
+function emptyHtml(title, desc, actionHtml) {
+  return '<div class="empty-state">' +
+    '<div class="title">' + esc(title) + '</div>' +
+    (desc ? '<div class="desc">' + esc(desc) + '</div>' : '') +
+    (actionHtml ? '<div class="actions">' + actionHtml + '</div>' : '') +
+    '</div>'
+}
+
+/* ═══════════════════════════════════════════════════════════════════
+   导航与视图切换
+   ═══════════════════════════════════════════════════════════════════ */
+
+const VIEWS = [
+  { id: 'sky',    label: '星图' },
+  { id: 'mood',   label: '心情' },
+  { id: 'diary',  label: '日记' },
+  { id: 'proc',   label: '经验卡' },
+  { id: 'taste',  label: '品味' },
+  { id: 'mem',    label: '记忆' },
+  { id: 'sleep',  label: '睡眠' },
+  { id: 'role',   label: '角色卡' },
+  { id: 'token',  label: '消费' },
+  { id: 'settings', label: '设置' },
+  { id: 'sys',    label: '系统' },
+]
+
+function buildNav() {
+  const nav = $('nav')
+  if (!nav) return
+  nav.innerHTML = VIEWS.map((v) =>
+    '<button class="nav-btn' + (v.id === currentView ? ' active' : '') +
+    '" data-view="' + v.id + '">' + v.label + '</button>'
+  ).join('')
+  nav.querySelectorAll('.nav-btn').forEach((btn) => {
+    btn.addEventListener('click', () => switchView(btn.dataset.view))
+  })
+}
+
+function switchView(id) {
+  if (id === currentView) return
+  const prev = currentView
+
+  document.querySelectorAll('.nav-btn').forEach((b) => {
+    b.classList.toggle('active', b.dataset.view === id)
+  })
+  document.querySelectorAll('.view').forEach((v) => {
+    v.classList.toggle('active', v.id === 'view-' + id)
+  })
+
+  currentView = id
+
+  if (prev === 'sky' && U) U.setVisible(false)
+  if (id === 'sky') {
+    if (U) { U.setVisible(true); U.resize() }
+    hideDrawer()
+  } else {
+    try { loadView(id) } catch (e) { console.warn(e) }
+  }
+}
+
+function loadView(id) {
+  if (id === 'mood') loadMood()
+  else if (id === 'diary') loadDiary()
+  else if (id === 'proc') loadProc()
+  else if (id === 'taste') loadTaste()
+  else if (id === 'mem') loadMemView()
+  else if (id === 'sleep') { loadSleepView(); loadSleepSteps() }
+  else if (id === 'role') loadRoleView()
+  else if (id === 'token') loadTokenView()
+  else if (id === 'settings') loadSettings()
+  else if (id === 'sys') loadSysView()
+}
+
+/* ═══════════════════════════════════════════════════════════════════
+   顶部统计
+   ═══════════════════════════════════════════════════════════════════ */
+
+/** 把角色名填进品牌位与标题（名字由服务端自动探测，不写死） */
+function applyRoleName(role) {
+  if (!role || !role.name) return
+  const name = String(role.name)
+  const el = $('brandName')
+  if (el) el.textContent = name
+  document.title = name + ' · 记忆宇宙'
+  // 记住来源，方便排查"为什么是这个名"
+  if (el) el.dataset.source = role.source || ''
+}
+
+async function loadStats() {
+  try {
+    const r = await api('/dsh-mind-api/state')
+    if (!r) return
+    if (r.role) applyRoleName(r.role)
+    $('statMem').textContent = r.stats ? r.stats.total : '—'
+    $('statFat').textContent = r.fatigue != null ? r.fatigue : '—'
+    const st = r.sleep ? r.sleep.state : null
+    const lv = $('statSleep')
+    lv.textContent = SLEEP_LABEL[st] || st || '—'
+    lv.style.color = st === 'sleeping' ? 'var(--accent-purple)'
+      : (st === 'preparing' ? 'var(--warn)' : 'var(--text-primary)')
+    return r
+  } catch (e) {
+    $('statMem').textContent = '—'
+    return null
+  }
+}
+
+/* ═══════════════════════════════════════════════════════════════════
+   星图：主题分簇
+   ═══════════════════════════════════════════════════════════════════ */
+
+/** 语义分簇：按情绪 > 重要度 > 类型 > 时间 */
+function clusterOf(n) {
+  const text = String(n.label || '')
+  const kind = n.kind || 'episode'
+  const imp = n.importance != null ? n.importance : 0.4
+  const emo = (n.emotionTags && n.emotionTags.length) || (n.mood_tags && n.mood_tags.length)
+
+  if (emo || kind === 'emotion_event') {
+    const tag = (n.emotionTags && n.emotionTags[0]) || (n.mood_tags && n.mood_tags[0]) || ''
+    const t = String(tag)
+    if (/happy|joy|excited|开心|高兴/.test(t)) return 'happy'
+    if (/calm|安心|平静/.test(t)) return 'calm'
+    if (/tired|疲惫|累/.test(t)) return 'tired'
+    if (/curious|好奇/.test(t)) return 'curious'
+    return 'emotion'
+  }
+
+  if (kind === 'relationship' || kind === 'preference' ||
+      /用户|他妈妈|妈妈|朋友|关系/.test(text)) return 'relation'
+  if (kind === 'plan' || kind === 'promise' ||
+      /计划|明天|以后|约定|答应|下次/.test(text)) return 'future'
+  if (kind === 'skill' || kind === 'procedural' || kind === 'fact' ||
+      /插件|代码|调试|工作|部署/.test(text)) return 'work'
+  if (kind === 'reflection' || kind === 'insight' || kind === 'lesson') return 'reflect'
+  if (/睡|醒|梦|熬夜|作息/.test(text)) return 'sleep'
+  if (imp >= 0.72) return 'core'
+
+  // 按**一天中的时段**分簇，让「日常」有可读的层次
+  //   0 清晨 05-09 / 1 上午 09-12 / 2 午后 12-17
+  //   3 傍晚 17-20 / 4 深夜 20-02 / 5 闲聊（短句）
+  if (!n.ts) return 'daily5'
+  const h = new Date(n.ts).getHours()
+  if (String(n.label || '').length <= 8) return 'daily5'   // 短句归「闲聊」
+  if (h >= 5 && h < 9) return 'daily0'
+  if (h >= 9 && h < 12) return 'daily1'
+  if (h >= 12 && h < 17) return 'daily2'
+  if (h >= 17 && h < 20) return 'daily3'
+  return 'daily4'
+}
+
+/** 把后端数据转成引擎需要的形状 */
+function toEngineData() {
+  const memNodes = (RAW.nodes || []).filter((n) => n.group !== 'entity')
+  const nodes = (RAW.nodes || []).map((n) => {
+    const isEntity = n.group === 'entity'
+    const region = isEntity ? 'entity' : clusterOf(n)
+    return {
+      id: n.id,
+      label: n.label || n.id,
+      kind: n.kind,
+      isEntity: isEntity,
+      region: region,
+      importance: n.importance != null ? n.importance : (n.size != null ? n.size : 0.4),
+      ts: n.ts,
+      source: n.source,
+      noise: n.noise === 1 || n.noise === true,
+      status: n.status,
+      accessCount: n.accessCount,
+      emotionTags: n.emotionTags || [],
+      mood_tags: n.mood_tags || [],
+      raw: n,
+    }
+  })
+  const edges = (RAW.edges || []).map((e) => ({
+    src: e.src, dst: e.dst,
+    kind: e.kind, weight: e.weight,
+  }))
+  return { nodes, edges }
+}
+
+/* ═══════════════════════════════════════════════════════════════════
+   星图：初始化与数据
+   ═══════════════════════════════════════════════════════════════════ */
+
+async function initSky() {
+  const stage = $('skyStage')
+  if (!stage) return
+
+  const hasGL = (() => {
+    try {
+      const c = document.createElement('canvas')
+      return !!(c.getContext('webgl2') || c.getContext('webgl'))
+    } catch (e) { return false }
+  })()
+
+  if (!hasGL) {
+    $('skyLoading').innerHTML =
+      '<div class="txt" style="color:var(--warn)">当前环境不支持 WebGL，无法显示 3D 星图</div>' +
+      '<div style="font-size:11px;color:var(--text-tertiary);margin-top:8px">记忆数据完好，可在「记忆」页查看</div>'
+    return
+  }
+
+  try {
+    const mod = await import('/dsh-mind-api/universe.js')
+    U = mod.createUniverse(stage, {
+      theme: CLUSTER_THEME,
+      onPick: (n) => { openDrawer(n) },
+      onPickCluster: (cl) => { openClusterDrawer(cl) },
+      onHover: (n, x, y) => { handleHover(n, x, y) },
+      onPickEmpty: () => { hideDrawer(); selectedCluster = null },
+      onReady: (info) => {
+        $('skyLoading').classList.add('done')
+        $('statClu').textContent = info.clusters
+        renderClusterFilter()
+        renderLegend()
+      },
+    })
+    window.__U = U; window.__RAW = () => RAW; window.__ALL = () => ALL_MEM
+    // 拉星图参数并应用（设置页改完刷新即可见）
+    try {
+      const gs = await api('/dsh-mind-api/graph-settings')
+      if (gs && gs.ok && gs.values && U.applySettings) U.applySettings(gs.values)
+    } catch (e) { /* 没接口就跳过 */ }
+    await loadGraph()
+  } catch (e) {
+    console.error('星图初始化失败', e)
+    $('skyLoading').innerHTML =
+      '<div class="txt" style="color:var(--danger)">星图加载失败</div>' +
+      '<div style="font-size:11px;color:var(--text-tertiary);margin-top:8px">' + esc(e.message || String(e)) + '</div>'
+  }
+}
+
+async function loadGraph() {
+  try {
+    RAW = await api('/dsh-mind-api/graph?limit=400')
+    ALL_MEM = (RAW.nodes || []).filter((n) => n.group !== 'entity')
+    if (U) {
+      const d = toEngineData()
+      U.setData(d.nodes, d.edges)
+    }
+    renderRecent()
+  } catch (e) {
+    toast(e.message, 'err')
+  }
+}
+
+/* ═══════════════════════════════════════════════════════════════════
+   星图：标签层（HTML overlay，逐帧定位 + 避让）
+   ═══════════════════════════════════════════════════════════════════ */
+
+const labelPool = new Map()   // key -> DOM element
+let labelRaf = null
+let lastCamR = 0
+
+function ensureLabel(key, cls) {
+  let e = labelPool.get(key)
+  if (e) return e
+  e = el('div', 'sky-label ' + cls)
+  $('skyLabels').appendChild(e)
+  labelPool.set(key, e)
+  return e
+}
+
+function clearLabels() {
+  labelPool.forEach((e) => e.remove())
+  labelPool.clear()
+}
+
+/** 标签避让：已占用的矩形列表 */
+function rectsOverlap(a, b, pad) {
+  const p = pad || 3
+  return !(a.x2 + p < b.x1 || b.x2 + p < a.x1 || a.y2 + p < b.y1 || b.y2 + p < a.y1)
+}
+
+function updateLabels() {
+  if (!U) return
+  const showLabels = $('tgLabels').checked
+  if (!showLabels) {
+    labelPool.forEach((e) => e.classList.remove('visible'))
+    return
+  }
+
+  const W = $('skyStage').clientWidth
+  const H = $('skyStage').clientHeight
+  const camR = U._debug().radius
+  const zoomedIn = camR < 520                 // 拉近才显示记忆标签
+
+  const placed = []
+
+  // ── ① 星团标签（始终显示，优先占位）──
+  const clusters = U.getClusters()
+  const clusterVisible = clusters.filter((c) => c.key !== 'core' && c.count > 0)
+
+  // 按团大小排序：大团优先占位（它们的标签更重要）
+  clusterVisible.sort((a, b) => b.count - a.count)
+
+  clusterVisible.forEach((c) => {
+    const p = U.projectCluster(c.key)
+    const key = 'c:' + c.key
+    const e = ensureLabel(key, 'cluster')
+    if (!p || p.x < -60 || p.x > W + 60 || p.y < -30 || p.y > H + 30) {
+      e.classList.remove('visible'); return
+    }
+
+    const txt = c.label + (c.count ? ' ' + c.count : '')
+    const w = Math.min(160, 14 + txt.length * 13)
+    const hh = 12
+    const baseY = Math.max(14, p.y - Math.max(18, p.pxRadius * 0.55))
+
+    // 候选位置：上 → 下 → 左上 → 右上
+    const candidates = [
+      { x: p.x, y: baseY },
+      { x: p.x, y: p.y + Math.max(20, p.pxRadius * 0.55) + 10 },
+      { x: p.x - w * 0.7, y: baseY },
+      { x: p.x + w * 0.7, y: baseY },
+      { x: p.x, y: baseY - 22 },
+    ]
+
+    let chosen = null
+    for (const cand of candidates) {
+      const box = { x1: cand.x - w / 2, x2: cand.x + w / 2, y1: cand.y - hh, y2: cand.y + hh }
+      if (box.x1 < 4 || box.x2 > W - 4 || box.y1 < 4 || box.y2 > H - 4) continue
+      if (placed.some((r) => rectsOverlap(box, r, 6))) continue
+      chosen = cand
+      break
+    }
+
+    if (!chosen) { e.classList.remove('visible'); return }
+
+    e.style.transform = 'translate(-50%, -50%) translate(' +
+      chosen.x.toFixed(1) + 'px,' + chosen.y.toFixed(1) + 'px)'
+    e.style.color = c.color
+    e.textContent = txt
+    e.classList.add('visible')
+
+    placed.push({
+      x1: chosen.x - w / 2, x2: chosen.x + w / 2,
+      y1: chosen.y - hh, y2: chosen.y + hh,
+    })
+  })
+
+  // ── ② 记忆标签（仅放大后，按重要度取前 N 且避让）──
+  // 缩放越近，允许显示越多；同时用"最小屏幕间隔"避免糊成一团
+  const memLimit = !zoomedIn ? 0 : (camR < 380 ? 18 : (camR < 620 ? 12 : 6))
+  const minGap = 26          // 两个标签中心的最小水平/垂直间距（px）
+  if (memLimit > 0) {
+    const memNodes = (RAW.nodes || [])
+      .filter((n) => n.group !== 'entity' && n.noise !== 1)
+      .slice()
+      .sort((a, b) => (b.importance || 0) - (a.importance || 0))
+
+    let shown = 0
+    for (const n of memNodes) {
+      if (shown >= memLimit) break
+      // 主题筛选生效时不显示被过滤的
+      if (kindFilters.size && !kindFilters.has(clusterOf(n))) continue
+      const p = U.project(n.id)
+      if (!p) continue
+      if (p.x < 10 || p.x > W - 10 || p.y < 10 || p.y > H - 10) continue
+
+      const key = 'm:' + n.id
+      const e = ensureLabel(key, 'memory')
+      // 估算尺寸做避让
+      const txt = String(n.label || '').replace(/\s+/g, ' ').slice(0, 26)
+      const w = Math.min(170, 10 + txt.length * 11)
+      const box = { x1: p.x - w / 2, x2: p.x + w / 2, y1: p.y + 6, y2: p.y + 22 }
+      // ① 矩形避让
+      if (placed.some((r) => rectsOverlap(box, r, 4))) {
+        e.classList.remove('visible')
+        continue
+      }
+      // ② 最小间隔：与已放置标签的中心距离太近也跳过（防密集区叠字）
+      const tooClose = placed.some((r) => {
+        const cx = (r.x1 + r.x2) / 2, cy = (r.y1 + r.y2) / 2
+        const mcx = (box.x1 + box.x2) / 2, mcy = (box.y1 + box.y2) / 2
+        return Math.abs(cx - mcx) < minGap && Math.abs(cy - mcy) < minGap
+      })
+      if (tooClose) {
+        e.classList.remove('visible')
+        continue
+      }
+      e.style.transform = 'translate(-50%, 0) translate(' + p.x.toFixed(1) + 'px,' + (p.y + 8).toFixed(1) + 'px)'
+      e.style.color = kindColor(n.kind)
+      e.textContent = txt
+      e.classList.add('visible')
+      placed.push(box)
+      shown++
+    }
+  }
+
+  // 隐藏未用到的记忆标签
+  labelPool.forEach((e, key) => {
+    if (key.startsWith('m:') && !placed.some((r) => r._key === key)) {
+      // 由上面的逻辑决定；这里只兜底隐藏超出视口的
+    }
+  })
+}
+
+function startLabelLoop() {
+  const tick = () => {
+    labelRaf = requestAnimationFrame(tick)
+    if (currentView !== 'sky' || !U) return
+    updateLabels()
+  }
+  labelRaf = requestAnimationFrame(tick)
+}
+
+/* ═══════════════════════════════════════════════════════════════════
+   星图：悬停
+   ═══════════════════════════════════════════════════════════════════ */
+
+function handleHover(n, x, y) {
+  const tip = $('skyTooltip')
+  if (!tip) return
+  if (!n) { tip.classList.remove('show'); return }
+
+  const raw = n.raw || n
+  tip.querySelector('.tt-title').textContent = String(raw.label || '').slice(0, 60)
+  const imp = raw.importance != null ? raw.importance : null
+  tip.querySelector('.tt-meta').innerHTML =
+    '<span class="chip" style="background:transparent;padding:0;color:' + kindColor(raw.kind) + '">' +
+      kindLabel(raw.kind) + '</span>' +
+    (raw.ts ? '<span>' + relTime(raw.ts) + '</span>' : '') +
+    (imp != null ? '<span>重要 ' + imp.toFixed(2) + '</span>' : '')
+
+  const stage = $('skyStage')
+  const rect = stage.getBoundingClientRect()
+  let lx = x - rect.left + 14
+  let ly = y - rect.top + 14
+  const tw = 200, th = 64
+  if (lx + tw > rect.width) lx = x - rect.left - tw - 12
+  if (ly + th > rect.height) ly = y - rect.top - th - 12
+  tip.style.left = Math.max(8, lx) + 'px'
+  tip.style.top = Math.max(8, ly) + 'px'
+  tip.classList.add('show')
+}
+
+/* ═══════════════════════════════════════════════════════════════════
+   星图：抽屉（记忆详情 / 星团详情）
+   ═══════════════════════════════════════════════════════════════════ */
+
+function openDrawer(n) {
+  const drawer = $('skyDrawer')
+  const title = $('drawerTitle')
+  const body = $('drawerBody')
+  const footer = $('drawerFooter')
+  if (!drawer) return
+
+  const raw = n.raw || n
+  drawer.classList.add('open')
+  const stage = $('skyStage')
+  if (stage) stage.classList.add('has-drawer')
+  title.textContent = raw.label || '记忆'
+  footer.style.display = 'flex'
+  footer.innerHTML =
+    '<button class="btn btn-ghost btn-sm" id="dEdit" style="flex:1">编辑</button>' +
+    '<button class="btn btn-danger btn-sm" id="dDelete">删除</button>'
+
+  const imp = raw.importance != null ? raw.importance : null
+  const emo = (raw.emotionTags || raw.mood_tags || []).filter(Boolean)
+  const rels = (RAW.edges || []).filter((e) => e.src === raw.id || e.dst === raw.id)
+
+  body.innerHTML =
+    '<div class="kv-grid">' +
+      '<div class="kv-key">类型</div><div class="kv-val"><span class="chip">' +
+        '<span class="chip-dot" style="background:' + kindColor(raw.kind) + '"></span>' +
+        kindLabel(raw.kind) + '</span></div>' +
+      '<div class="kv-key">时间</div><div class="kv-val">' +
+        (raw.ts ? fmtDate(raw.ts) + ' · ' + relTime(raw.ts) : '<span class="kv-val muted">未记录</span>') + '</div>' +
+      '<div class="kv-key">重要度</div><div class="kv-val">' +
+        (imp != null ? imp.toFixed(2) : '<span style="color:var(--text-disabled)">暂无</span>') + '</div>' +
+      '<div class="kv-key">来源</div><div class="kv-val">' +
+        (raw.source ? esc(raw.source) : '<span style="color:var(--text-disabled)">未知</span>') + '</div>' +
+      '<div class="kv-key">访问</div><div class="kv-val">' +
+        (raw.accessCount ? raw.accessCount + ' 次' : '<span style="color:var(--text-disabled)">未检索</span>') + '</div>' +
+      '<div class="kv-key">情绪</div><div class="kv-val">' +
+        (emo.length ? emo.map((m) => '<span class="chip chip-purple">' + esc(m) + '</span>').join(' ') :
+         '<span style="color:var(--text-disabled)">未记录</span>') + '</div>' +
+    '</div>' +
+    '<div><div class="section-caption" style="margin-bottom:6px">正文</div>' +
+      '<div class="body-block" id="drawerText">' + esc(raw.label || '') + '</div></div>' +
+    '<div><div class="section-caption" style="margin-bottom:6px">关联（' + rels.length + '）</div>' +
+      (rels.length ? rels.slice(0, 10).map((e) => {
+        const oid = e.src === raw.id ? e.dst : e.src
+        const o = (RAW.nodes || []).find((x) => x.id === oid)
+        return '<div class="relation-item" data-goto="' + esc(oid) + '">' +
+          '<span class="dot" style="background:' + kindColor(o ? o.kind : 'episode') + '"></span>' +
+          '<span class="label">' + esc(o ? String(o.label || oid).slice(0, 40) : oid) + '</span>' +
+          '<span class="basis">' + esc(e.kind === 'entity' ? '实体' : (e.kind || '关联')) + '</span>' +
+          '</div>'
+      }).join('') : '<div style="color:var(--text-disabled);font-size:11px">暂无关联依据</div>') +
+    '</div>'
+
+  // 绑定
+  $('dEdit').onclick = () => openModal(raw)
+  $('dDelete').onclick = () => deleteMemory(raw.id)
+  body.querySelectorAll('.relation-item[data-goto]').forEach((e) => {
+    e.onclick = () => {
+      const t = (RAW.nodes || []).find((x) => x.id === e.dataset.goto)
+      if (t && U) { U.focusOn(t); openDrawer(t) }
+    }
+  })
+
+  // 拉全文
+  api('/dsh-mind-api/memory/get?id=' + encodeURIComponent(raw.id))
+    .then((r) => {
+      if (r && r.memory && r.memory.text) {
+        const t = $('drawerText')
+        if (t) t.textContent = r.memory.text
+      }
+    })
+    .catch(() => {})
+}
+
+function openClusterDrawer(cl) {
+  const drawer = $('skyDrawer')
+  const title = $('drawerTitle')
+  const body = $('drawerBody')
+  const footer = $('drawerFooter')
+  if (!drawer) return
+
+  selectedCluster = cl.key
+  drawer.classList.add('open')
+  const stage2 = $('skyStage')
+  if (stage2) stage2.classList.add('has-drawer')
+  title.textContent = cl.label + ' · ' + cl.count + ' 条'
+  footer.style.display = 'none'
+
+  const inCluster = ALL_MEM.filter((n) => clusterOf(n) === cl.key)
+    .sort((a, b) => (b.ts || 0) - (a.ts || 0))
+
+  // 情绪分布
+  const emoCount = {}
+  inCluster.forEach((n) => {
+    (n.emotionTags || n.mood_tags || []).forEach((t) => {
+      if (t) emoCount[t] = (emoCount[t] || 0) + 1
+    })
+  })
+  const tsList = inCluster.map((n) => n.ts).filter(Boolean)
+  const tsMin = tsList.length ? Math.min.apply(null, tsList) : null
+  const tsMax = tsList.length ? Math.max.apply(null, tsList) : null
+
+  body.innerHTML =
+    '<div class="metric-row">' +
+      '<div class="metric"><div class="metric-value">' + cl.count + '</div><div class="metric-label">记忆数</div></div>' +
+      '<div class="metric"><div class="metric-value">' +
+        (cl.avgImportance ? cl.avgImportance.toFixed(2) : '—') + '</div><div class="metric-label">平均重要度</div></div>' +
+      '<div class="metric"><div class="metric-value" style="font-size:var(--fs-md)">' +
+        (tsMin ? relTime(tsMin) : '—') + '</div><div class="metric-label">最早</div></div>' +
+    '</div>' +
+    (Object.keys(emoCount).length ?
+      '<div><div class="section-caption" style="margin-bottom:6px">情绪分布</div><div style="display:flex;gap:5px;flex-wrap:wrap">' +
+      Object.entries(emoCount).sort((a, b) => b[1] - a[1]).slice(0, 8)
+        .map(([k, v]) => '<span class="chip chip-purple">' + esc(k) + ' ' + v + '</span>').join('') +
+      '</div></div>' : '') +
+    '<div><div class="section-caption" style="margin-bottom:6px">该主题下的记忆</div>' +
+      (inCluster.length ? inCluster.slice(0, 24).map((n) =>
+        '<div class="memory-row" data-mem="' + esc(n.id) + '">' +
+          '<div class="body"><div class="text">' + esc(String(n.label || '').slice(0, 90)) + '</div>' +
+          '<div class="meta">' +
+            '<span class="chip"><span class="chip-dot" style="background:' + kindColor(n.kind) + '"></span>' +
+            kindLabel(n.kind) + '</span>' +
+            '<span class="chip">' + relTime(n.ts) + '</span>' +
+          '</div></div></div>'
+      ).join('') : '<div style="color:var(--text-disabled);font-size:11px">该主题暂无记忆</div>') +
+    '</div>'
+
+  body.querySelectorAll('.memory-row[data-mem]').forEach((e) => {
+    e.onclick = () => {
+      const t = (RAW.nodes || []).find((x) => x.id === e.dataset.mem)
+      if (t) { if (U) U.focusOn(t); openDrawer(t) }
+    }
+  })
+}
+
+function hideDrawer() {
+  const d = $('skyDrawer')
+  if (d) d.classList.remove('open')
+  const stage = $('skyStage')
+  if (stage) stage.classList.remove('has-drawer')
+}
+
+/* ═══════════════════════════════════════════════════════════════════
+   星图：筛选 / 图例 / 最近
+   ═══════════════════════════════════════════════════════════════════ */
+
+function renderClusterFilter() {
+  const box = $('skyClusterFilter')
+  if (!box || !U) return
+  const clusters = U.getClusters().filter((c) => c.count > 0 && c.key !== 'core')
+    .sort((a, b) => b.count - a.count)
+
+  box.innerHTML = clusters.map((c) =>
+    '<button class="chip" data-clu="' + esc(c.key) + '" style="cursor:pointer;border:1px solid ' +
+    (selectedCluster === c.key ? c.color : 'transparent') + ';color:' +
+    (selectedCluster === c.key ? c.color : 'var(--text-secondary)') + '">' +
+    '<span class="chip-dot" style="background:' + c.color + '"></span>' +
+    esc(c.label) + ' ' + c.count + '</button>'
+  ).join('')
+
+  box.querySelectorAll('[data-clu]').forEach((b) => {
+    b.onclick = () => {
+      const key = b.dataset.clu
+      if (selectedCluster === key) {
+        selectedCluster = null
+      } else {
+        selectedCluster = key
+        if (U) U.focusCluster(key)
+        const cl = U.getClusters().find((c) => c.key === key)
+        if (cl) openClusterDrawer(cl)
+      }
+      renderClusterFilter()
+    }
+  })
+}
+
+function renderLegend() {
+  const box = $('dockLegend')
+  if (!box || !U) return
+  const clusters = U.getClusters().filter((c) => c.count > 0)
+    .sort((a, b) => b.count - a.count).slice(0, 5)
+  box.innerHTML = clusters.map((c) =>
+    '<span class="legend-item"><span class="dot" style="background:' + c.color + '"></span>' +
+    esc(c.label) + '</span>'
+  ).join('')
+}
+
+async function renderRecent() {
+  const box = $('skyRecent')
+  if (!box) return
+  try {
+    const r = await api('/dsh-mind-api/recent')
+    const items = ((r && r.items) || []).filter((m) => m && m.text).slice(0, 8)
+    if (!items.length) {
+      box.innerHTML = '<div style="font-size:10.5px;color:var(--text-tertiary);padding:4px">还没有新记忆</div>'
+      return
+    }
+    box.innerHTML = items.map((m) => {
+      const col = kindColor(m.kind)
+      const t = String(m.text || '').replace(/\s+/g, ' ').slice(0, 26)
+      return '<div class="recent-item" data-id="' + esc(m.id) + '">' +
+        '<span class="dot" style="background:' + col + '"></span>' +
+        '<span class="txt">' + esc(t) + '</span></div>'
+    }).join('')
+
+    box.querySelectorAll('.recent-item[data-id]').forEach((e) => {
+      e.onclick = () => {
+        const n = (RAW.nodes || []).find((x) => x.id === e.dataset.id)
+        if (n && U) { U.focusOn(n); openDrawer(n) }
+        else toast('该记忆不在当前视图', 'err')
+      }
+    })
+  } catch (e) {
+    box.innerHTML = '<div style="font-size:10.5px;color:var(--danger);padding:4px">读取失败</div>'
+  }
+}
+
+/* ═══════════════════════════════════════════════════════════════════
+   星图：搜索
+   ═══════════════════════════════════════════════════════════════════ */
+
+function doSkySearch(q) {
+  const query = String(q || '').trim().toLowerCase()
+  if (!query) { if (U) U.setSearchHits([]); return }
+
+  const hits = []
+  for (const n of (RAW.nodes || [])) {
+    if (n.group === 'entity') continue
+    if (String(n.label || '').toLowerCase().includes(query)) hits.push(n.id)
+  }
+  if (U) U.setSearchHits(hits)
+  if (!hits.length) { toast('没有匹配的记忆', 'err'); return }
+  const first = (RAW.nodes || []).find((n) => n.id === hits[0])
+  if (first && U) { U.focusOn(first); openDrawer(first) }
+  toast('匹配 ' + hits.length + ' 条', 'ok')
+}
+
+/* ═══════════════════════════════════════════════════════════════════
+   记忆编辑弹窗
+   ═══════════════════════════════════════════════════════════════════ */
+
+function openModal(item) {
+  if (!item) return
+  modalId = item.id
+  $('memModal').classList.add('open')
+  $('modalTitle').textContent = String(item.label || item.id).slice(0, 48)
+  $('modalMeta').innerHTML =
+    '<span class="chip"><span class="chip-dot" style="background:' + kindColor(item.kind) + '"></span>' +
+      kindLabel(item.kind) + '</span>' +
+    (item.importance != null ? '<span class="chip">重要 ' + item.importance.toFixed(2) + '</span>' : '') +
+    (item.source ? '<span class="chip">' + esc(item.source) + '</span>' : '') +
+    '<span class="chip">' + relTime(item.ts) + '</span>'
+  $('modalText').value = item.label || ''
+  $('modalHint').textContent = '降权：遗忘权重减半，仍可检索。彻底删除：从数据库整行删除，不可恢复。'
+
+  // 拉全文
+  api('/dsh-mind-api/memory/get?id=' + encodeURIComponent(item.id))
+    .then((r) => { if (r && r.memory && r.memory.text) $('modalText').value = r.memory.text })
+    .catch(() => {})
+}
+
+function closeModal() {
+  $('memModal').classList.remove('open')
+  modalId = null
+}
+
+async function saveModal() {
+  if (!modalId) return
+  const text = $('modalText').value.trim()
+  if (!text) { toast('内容不能为空', 'err'); return }
+  try {
+    const r = await post('/dsh-mind-api/memory/correct', { id: modalId, text, reason: '面板编辑' })
+    if (r && r.ok) {
+      toast('已保存', 'ok'); closeModal(); await loadGraph(); refreshMemList()
+    } else toast((r && r.error) || '保存失败', 'err')
+  } catch (e) { toast(e.message, 'err') }
+}
+
+async function deprioritizeModal() {
+  if (!modalId) return
+  try {
+    const r = await post('/dsh-mind-api/memory/forget', { id: modalId, tier: 1, reason: '面板降权' })
+    if (r && r.ok) { toast('已降权', 'ok'); closeModal(); await loadGraph(); refreshMemList() }
+    else toast((r && r.error) || '降权失败', 'err')
+  } catch (e) { toast(e.message, 'err') }
+}
+
+async function deleteMemory(id) {
+  if (!id) return
+  if (!confirm('彻底删除这条记忆？\n\n会从数据库整行删除，不可恢复。')) return
+  try {
+    const r = await post('/dsh-mind-api/memory/delete', { id, reason: '用户手动删除' })
+    if (r && r.ok) {
+      toast('已彻底删除', 'ok'); hideDrawer(); closeModal(); await loadGraph(); refreshMemList()
+    } else toast((r && r.error) || '删除失败', 'err')
+  } catch (e) { toast(e.message, 'err') }
+}
+
+/* ═══════════════════════════════════════════════════════════════════
+   心情页
+   ═══════════════════════════════════════════════════════════════════ */
+
+const MOOD_TONE = {
+  calm: '#6FC9B8', happy: '#E8C06A', curious: '#6F86FF', focused: '#7A9EFF',
+  excited: '#F0A06A', tired: '#8A90B8', annoyed: '#E88A6A', down: '#7A8AAA',
+  fear: '#A77BFF', numb: '#7A8098',
+}
+
+async function loadMood() {
+  const hero = $('moodHero')
+  hero.innerHTML = loadingHtml('读取心情')
+  try {
+    const r = await api('/dsh-mood-api/state')
+    if (!r) { hero.innerHTML = errorHtml('无数据'); return }
+
+    const cur = r.current || {}
+    const tone = MOOD_TONE[cur.id] || '#6F86FF'
+    const ranked = (r.ranked || []).slice().sort((a, b) => (b.value || 0) - (a.value || 0))
+
+    hero.innerHTML =
+      '<div style="display:flex;align-items:flex-start;gap:20px;flex-wrap:wrap">' +
+        '<div style="flex:1;min-width:200px">' +
+          '<div style="display:flex;align-items:center;gap:12px;margin-bottom:10px">' +
+            '<span style="width:10px;height:10px;border-radius:50%;background:' + tone +
+              ';box-shadow:0 0 16px ' + tone + '"></span>' +
+            '<span style="font-size:var(--fs-2xl);font-weight:var(--fw-bold);letter-spacing:-0.01em">' +
+              esc(cur.label || '—') + '</span>' +
+            (r.mixed ? '<span class="chip chip-purple">混合态</span>' : '') +
+          '</div>' +
+          '<div style="display:flex;gap:8px;flex-wrap:wrap">' +
+            (cur.mixLabel ? '<span class="chip">' + esc(cur.mixLabel) + '</span>' : '') +
+            '<span class="chip">距上次切换 ' + Math.round(r.sinceSwitchMin || 0) + ' 分钟</span>' +
+            '<span class="chip">下次约 ' + Math.round(r.nextPeriodicMin || 0) + ' 分钟后</span>' +
+          '</div>' +
+        '</div>' +
+        '<div style="display:flex;gap:20px">' +
+          '<div class="metric"><div class="metric-value">' + ranked.length +
+            '</div><div class="metric-label">情绪维度</div></div>' +
+          '<div class="metric"><div class="metric-value">' + esc(r.generateAt || '23:59') +
+            '</div><div class="metric-label">日记生成</div></div>' +
+        '</div>' +
+      '</div>'
+
+    // 分组
+    const tiers = r.tiers || {}
+    const byId = new Map(ranked.map((x) => [x.id, x]))
+    const pick = (ids) => (ids || []).map((id) => byId.get(id)).filter(Boolean)
+      .sort((a, b) => (b.value || 0) - (a.value || 0))
+
+    const groups = {
+      moodBasic: pick(tiers.basic),
+      moodComplex: pick(tiers.complex),
+      moodModern: pick(tiers.modern),
+    }
+    // 兜底：没有 tiers 就三等分
+    const third = Math.ceil(ranked.length / 3)
+    if (!groups.moodBasic.length) groups.moodBasic = ranked.slice(0, third)
+    if (!groups.moodComplex.length) groups.moodComplex = ranked.slice(third, third * 2)
+    if (!groups.moodModern.length) groups.moodModern = ranked.slice(third * 2)
+
+    for (const [id, list] of Object.entries(groups)) {
+      const box = $(id)
+      if (!box) continue
+      box.innerHTML = list.length ? list.map((m) => {
+        const v = m.value || 0
+        const c = MOOD_TONE[m.id] || '#6F86FF'
+        return '<div class="mood-bar" style="display:flex;align-items:center;gap:10px;padding:4px 0">' +
+          '<span style="width:56px;font-size:var(--fs-sm);color:var(--text-secondary);flex:none">' +
+            esc(m.label || m.id) + '</span>' +
+          '<span style="flex:1;height:5px;background:var(--bg-input);border-radius:3px;overflow:hidden">' +
+            '<span style="display:block;height:100%;width:' + Math.min(100, v) +
+            '%;background:' + c + ';border-radius:3px;transition:width 0.5s var(--ease-out)"></span></span>' +
+          '<span class="numeric" style="width:32px;text-align:right;font-size:var(--fs-xs);color:var(--text-tertiary)">' +
+            v.toFixed(1) + '</span></div>'
+      }).join('') : '<div class="empty-state" style="padding:20px 0"><div class="desc">暂无</div></div>'
+    }
+
+    $('moodStats').innerHTML =
+      '<div class="kv-grid">' +
+        '<div class="kv-key">总维度</div><div class="kv-val">' + ranked.length + '</div>' +
+        '<div class="kv-key">最强烈</div><div class="kv-val">' +
+          (ranked[0] ? esc(ranked[0].label || ranked[0].id) + ' ' + (ranked[0].value || 0).toFixed(1) : '—') + '</div>' +
+        '<div class="kv-key">生成时间</div><div class="kv-val">' + esc(r.generateAt || '23:59') + '</div>' +
+      '</div>'
+  } catch (e) {
+    hero.innerHTML = errorHtml(e.message)
+  }
+}
+
+/* ═══════════════════════════════════════════════════════════════════
+   日记页
+   ═══════════════════════════════════════════════════════════════════ */
+
+async function loadDiary() {
+  const status = $('diaryStatus')
+  const body = $('diaryBody')
+  status.innerHTML = loadingHtml()
+  body.innerHTML = ''
+  try {
+    const r = await api('/dsh-mood-api/state')
+    const count = (r && r.count) || 0
+    const unlocked = r && r.unlocked === true
+    const unreadable = r && r.diaryUnreadable
+
+    status.innerHTML =
+      '<div style="display:flex;gap:20px;flex-wrap:wrap;align-items:center">' +
+        '<div class="metric"><div class="metric-value">' + count + '</div><div class="metric-label">已写篇数</div></div>' +
+        '<div class="metric"><div class="metric-value" style="font-size:var(--fs-lg)">' +
+          esc((r && r.generateAt) || '23:59') + '</div><div class="metric-label">每天生成时间</div></div>' +
+        '<div style="display:flex;gap:8px;flex-wrap:wrap">' +
+          (unreadable ? '<span class="chip chip-danger">文件读取失败</span>' :
+           unlocked ? '<span class="chip chip-ok">已解锁</span>' :
+           '<span class="chip chip-warn">已锁定</span>') +
+          '<span class="chip">加密存储</span>' +
+        '</div>' +
+      '</div>'
+
+    if (unreadable) {
+      body.innerHTML = '<div class="card">' + errorHtml('日记文件读不出来——加密密钥失效或文件被修改，不是没写') + '</div>'
+      return
+    }
+    if (!unlocked) {
+      body.innerHTML = '<div class="card">' + emptyHtml(
+        '这本日记锁着',
+        '日记归AI所有，需要她同意才能查看。已经写了 ' + count + ' 篇，想看就当面问她。',
+      ) + '</div>'
+      return
+    }
+
+    // 已解锁：逐天读取
+    body.innerHTML = '<div class="card">' + loadingHtml('读取正文') + '</div>'
+    const rows = []
+    for (let i = 0; i < 30; i++) {
+      const d = new Date()
+      d.setDate(d.getDate() - i)
+      const ds = d.getFullYear() + '-' +
+        String(d.getMonth() + 1).padStart(2, '0') + '-' +
+        String(d.getDate()).padStart(2, '0')
+      try {
+        const rr = await api('/dsh-mood-api/diary?date=' + ds)
+        if (rr && rr.ok && rr.text) rows.push({ date: ds, text: rr.text, moodLabel: rr.moodLabel })
+      } catch (e) {}
+    }
+
+    body.innerHTML = rows.length
+      ? '<div class="card" style="display:flex;flex-direction:column;gap:14px">' +
+        rows.map((x) =>
+          '<div style="padding-bottom:14px;border-bottom:1px solid var(--line-subtle)">' +
+            '<div style="display:flex;gap:8px;margin-bottom:8px;align-items:center">' +
+              '<span class="chip chip-info">' + esc(x.date) + '</span>' +
+              (x.moodLabel ? '<span class="chip">' + esc(x.moodLabel) + '</span>' : '') +
+              '<span class="chip">' + (x.text || '').length + ' 字</span>' +
+            '</div>' +
+            '<div style="font-size:var(--fs-sm);line-height:1.85;color:var(--text-secondary);white-space:pre-wrap">' +
+              esc(x.text) + '</div>' +
+          '</div>'
+        ).join('') + '</div>'
+      : '<div class="card">' + emptyHtml('还没有日记正文', '日记在每天 ' + esc((r && r.generateAt) || '23:59') + ' 自动生成') + '</div>'
+  } catch (e) {
+    status.innerHTML = ''
+    body.innerHTML = '<div class="card">' + errorHtml(e.message) + '</div>'
+  }
+}
+
+/* ═══════════════════════════════════════════════════════════════════
+   经验卡页
+   ═══════════════════════════════════════════════════════════════════ */
+
+async function loadProc() {
+  const list = $('procList')
+  const inbox = $('procInbox')
+  const dir = $('procDir')
+  list.innerHTML = loadingHtml()
+  try {
+    const r = await api('/dsh-mood-api/procedures')
+    if (!r) { list.innerHTML = errorHtml('无数据'); return }
+
+    dir.textContent = (r.dir || '').split('\\').pop() || '默认'
+    const cards = r.cards || []
+    list.innerHTML = cards.length ? cards.map((c) =>
+      '<div class="memory-row"><div class="body">' +
+        '<div style="font-size:var(--fs-sm);color:var(--text-primary)">' +
+          esc(c.name || c.title || c.id || '') + '</div>' +
+        (c.symptoms ? '<div class="text" style="font-size:var(--fs-xs);color:var(--text-tertiary);margin-top:3px">' +
+          esc(String(c.symptoms).slice(0, 60)) + '</div>' : '') +
+      '</div><span class="chip">' + esc(c.status || '卡') + '</span></div>'
+    ).join('') : emptyHtml('还没有经验卡', '踩到坑时用右侧收件箱记一句话，收尾会整理成卡')
+
+    const ib = r.inbox
+    const lines = Array.isArray(ib) ? ib : ((ib && ib.lines) || [])
+    inbox.innerHTML = lines.length
+      ? lines.map((l) => '<div style="font-size:var(--fs-xs);color:var(--text-secondary);padding:3px 0">· ' + esc(l) + '</div>').join('')
+      : '<div style="color:var(--text-tertiary);font-size:var(--fs-xs);padding:6px 0">收件箱是空的</div>'
+  } catch (e) {
+    list.innerHTML = errorHtml(e.message)
+  }
+}
+
+/* ═══════════════════════════════════════════════════════════════════
+   品味页
+   ═══════════════════════════════════════════════════════════════════ */
+
+async function loadTaste() {
+  const prin = $('tastePrinciples')
+  const items = $('tasteItems')
+  const stats = $('tasteStats')
+  prin.innerHTML = loadingHtml()
+  loadTasteMems()
+  try {
+    const r = await api('/dsh-mood-api/taste')
+    if (!r) { prin.innerHTML = errorHtml('无数据'); return }
+
+    const p = r.principles || []
+    prin.innerHTML = p.length ? p.map((x) =>
+      '<div class="memory-row"><div class="body">' +
+        '<div style="font-size:var(--fs-sm);color:var(--text-primary);line-height:1.6">' + esc(x.text) + '</div>' +
+        (x.why ? '<div style="font-size:var(--fs-xs);color:var(--text-tertiary);margin-top:3px">为什么：' + esc(x.why) + '</div>' : '') +
+        (x.unless ? '<div style="font-size:var(--fs-xs);color:var(--text-tertiary)">不适用：' + esc(x.unless) + '</div>' : '') +
+        '<div class="meta">' +
+          '<span class="chip ' + (x.on === false ? '' : 'chip-ok') + '">' + (x.on === false ? '已停用' : '生效') + '</span>' +
+        '</div>' +
+      '</div><button class="btn btn-ghost btn-sm" data-del="' + esc(x.id) + '">删</button></div>'
+    ).join('') : emptyHtml('还没有原则', '品味是AI自己的偏好，可以在这里告诉她')
+
+    prin.querySelectorAll('[data-del]').forEach((b) => {
+      b.onclick = async () => {
+        if (!confirm('删除这条原则？')) return
+        try {
+          const rr = await post('/dsh-mood-api/taste', { action: 'delPrinciple', id: b.dataset.del })
+          if (rr && rr.ok) { toast('已删除', 'ok'); loadTaste() }
+          else toast((rr && rr.error) || '失败', 'err')
+        } catch (e) { toast(e.message, 'err') }
+      }
+    })
+
+    const st = r.stats || {}
+    stats.textContent = '原则 ' + (st.principlesOn != null ? st.principlesOn : p.length) +
+      ' · 条目 ' + (st.items != null ? st.items : (r.items || []).length)
+
+    const it = r.items || []
+    items.innerHTML = it.length ? it.slice(0, 40).map((x) =>
+      '<div class="memory-row"><div class="body">' +
+        '<div class="meta" style="margin-top:0;margin-bottom:4px">' +
+          (x.kind ? '<span class="chip">' + esc(x.kind) + '</span>' : '') +
+          (x.tags || []).slice(0, 3).map((t) => '<span class="chip">' + esc(t) + '</span>').join('') +
+        '</div>' +
+        '<div style="font-size:var(--fs-xs);color:var(--text-secondary);line-height:1.6">' +
+          esc(x.note || x.said || '') + '</div>' +
+      '</div></div>'
+    ).join('') : '<div style="color:var(--text-tertiary);font-size:var(--fs-xs);padding:8px">还没有品味条目</div>'
+  } catch (e) {
+    prin.innerHTML = errorHtml(e.message)
+  }
+}
+
+async function loadTasteMems() {
+  const box = $('tasteMems')
+  if (!box) return
+  box.innerHTML = loadingHtml()
+  try {
+    const nodes = ALL_MEM.length ? ALL_MEM :
+      ((await api('/dsh-mind-api/graph?limit=400')).nodes || []).filter((n) => n.group !== 'entity')
+    const prefer = nodes.filter((n) => n.kind === 'preference' || n.kind === 'profile' || n.kind === 'relation')
+    const arr = (prefer.length ? prefer : nodes).slice(0, 30)
+    box.innerHTML = arr.length ? arr.map((n) =>
+      '<div class="memory-row" data-mem="' + esc(n.id) + '"><div class="body">' +
+        '<div class="text">' + esc(String(n.label || '').slice(0, 90)) + '</div>' +
+        '<div class="meta"><span class="chip">' +
+          '<span class="chip-dot" style="background:' + kindColor(n.kind) + '"></span>' +
+          kindLabel(n.kind) + '</span></div>' +
+      '</div></div>'
+    ).join('') : '<div style="color:var(--text-tertiary);font-size:var(--fs-xs);padding:8px">还没有相关记忆</div>'
+    box.querySelectorAll('[data-mem]').forEach((e) => {
+      e.onclick = () => {
+        const t = nodes.find((x) => x.id === e.dataset.mem)
+        if (t) openModal(t)
+      }
+    })
+  } catch (e) {
+    box.innerHTML = errorHtml(e.message)
+  }
+}
+
+/* ═══════════════════════════════════════════════════════════════════
+   记忆治理页
+   ═══════════════════════════════════════════════════════════════════ */
+
+function loadMemView() {
+  refreshMemList()
+  loadMemRecent()
+  loadMemAudit()
+}
+
+async function refreshMemList() {
+  const box = $('memList')
+  if (!box) return
+  box.innerHTML = loadingHtml()
+  try {
+    if (!ALL_MEM.length) {
+      const r = await api('/dsh-mind-api/graph?limit=400')
+      ALL_MEM = ((r && r.nodes) || []).filter((n) => n.group !== 'entity')
+    }
+    const sel = $('memKind')
+    if (sel.options.length <= 1) {
+      const kinds = Array.from(new Set(ALL_MEM.map((n) => n.kind))).sort()
+      sel.innerHTML = '<option value="">全部类型</option>' +
+        kinds.map((k) => '<option value="' + esc(k) + '">' + kindLabel(k) + '</option>').join('')
+    }
+    renderMemRows()
+  } catch (e) {
+    box.innerHTML = errorHtml(e.message)
+  }
+}
+
+function renderMemRows() {
+  const box = $('memList')
+  const q = ($('memSearch').value || '').trim().toLowerCase()
+  const kind = $('memKind').value
+  const sort = $('memSort').value
+
+  let arr = ALL_MEM.slice()
+  if (kind) arr = arr.filter((n) => n.kind === kind)
+  if (q) arr = arr.filter((n) => String(n.label || '').toLowerCase().includes(q))
+
+  if (sort === 'importance') arr.sort((a, b) => (b.importance || 0) - (a.importance || 0))
+  else if (sort === 'access') arr.sort((a, b) => (b.accessCount || 0) - (a.accessCount || 0))
+  else if (sort === 'time-asc') arr.sort((a, b) => (a.ts || 0) - (b.ts || 0))
+  else arr.sort((a, b) => (b.ts || 0) - (a.ts || 0))
+
+  const withTs = ALL_MEM.filter((n) => n.ts)
+  let range = ''
+  if (withTs.length) {
+    const mn = Math.min.apply(null, withTs.map((n) => n.ts))
+    const mx = Math.max.apply(null, withTs.map((n) => n.ts))
+    const f = (t) => { const d = new Date(t); return (d.getMonth() + 1) + '/' + d.getDate() }
+    range = ' · ' + f(mn) + '~' + f(mx)
+  }
+  $('memCount').textContent = '显示 ' + Math.min(memShown, arr.length) + ' / ' + arr.length + range
+
+  const shown = arr.slice(0, memShown)
+  box.innerHTML = (shown.length ? shown.map((n) => {
+    const imp = n.importance != null ? n.importance : null
+    const col = imp != null ? (imp >= 0.75 ? 'var(--accent-amber)' : (imp >= 0.5 ? 'var(--accent-blue)' : 'var(--text-tertiary)')) : 'var(--text-tertiary)'
+    return '<div class="memory-row" data-mem="' + esc(n.id) + '">' +
+      '<div class="body">' +
+        '<div class="text">' + esc(String(n.label || '').slice(0, 120)) + '</div>' +
+        '<div class="meta">' +
+          '<span class="chip"><span class="chip-dot" style="background:' + kindColor(n.kind) + '"></span>' +
+            kindLabel(n.kind) + '</span>' +
+          (imp != null ?
+            '<span class="importance-bar"><span style="font-size:10.5px;color:' + col + '">' + imp.toFixed(2) + '</span>' +
+            '<span class="importance-track"><span class="importance-fill" style="width:' + (imp * 100) +
+            '%;background:' + col + '"></span></span></span>' : '') +
+          '<span class="chip">' + relTime(n.ts) + '</span>' +
+          (n.source ? '<span class="chip">' + esc(n.source) + '</span>' : '') +
+        '</div>' +
+      '</div></div>'
+  }).join('') : emptyHtml('没有符合条件的记忆', '试试放宽筛选条件')) +
+    (arr.length > shown.length
+      ? '<div style="text-align:center;margin-top:14px"><button class="btn btn-ghost btn-sm" id="memMore">加载更多（还有 ' +
+        (arr.length - shown.length) + ' 条）</button></div>'
+      : '')
+
+  const more = $('memMore')
+  if (more) more.onclick = () => { memShown += 300; renderMemRows() }
+
+  // 事件委托（列表会重绘，避免绑到旧节点）
+  if (!box.dataset.delegated) {
+    box.dataset.delegated = '1'
+    box.addEventListener('click', (ev) => {
+      const row = ev.target.closest ? ev.target.closest('.memory-row[data-mem]') : null
+      if (!row) return
+      const item = ALL_MEM.find((x) => x.id === row.dataset.mem)
+      if (item) openModal(item)
+    })
+  }
+}
+
+async function doMemQuery() {
+  const q = ($('memQuery').value || '').trim()
+  if (!q) return
+  const box = $('memHits')
+  box.innerHTML = loadingHtml('检索')
+  try {
+    const r = await api('/dsh-mind-api/query?q=' + encodeURIComponent(q))
+    const hits = (r && r.hits) || []
+    box.innerHTML = hits.length ? hits.map((h) =>
+      '<div class="memory-row" data-mem="' + esc(h.id) + '"><div class="body">' +
+        '<div class="text">' + esc(String(h.text || '').slice(0, 140)) + '</div>' +
+        '<div class="meta">' +
+          '<span class="chip">' + esc(kindLabel(h.kind)) + '</span>' +
+          '<span class="chip">' + (h.score || 0).toFixed(3) + '</span>' +
+        '</div>' +
+      '</div></div>'
+    ).join('') : '<div style="color:var(--text-tertiary);font-size:var(--fs-xs);padding:8px">无命中</div>'
+    box.querySelectorAll('[data-mem]').forEach((e) => {
+      e.onclick = () => {
+        const t = ALL_MEM.find((x) => x.id === e.dataset.mem)
+        if (t) openModal(t)
+        else {
+          const hit = hits.find((h) => h.id === e.dataset.mem)
+          if (hit) openModal({ id: hit.id, kind: hit.kind, label: hit.text, importance: null, ts: null })
+        }
+      }
+    })
+  } catch (e) {
+    box.innerHTML = errorHtml(e.message)
+  }
+}
+
+async function loadMemRecent() {
+  const box = $('memRecent')
+  if (!box) return
+  try {
+    const r = await api('/dsh-mind-api/recent')
+    const items = ((r && r.items) || []).slice(0, 12)
+    box.innerHTML = items.length ? items.map((m) =>
+      '<div class="memory-row"><div class="body">' +
+        '<div class="text" style="font-size:var(--fs-xs)">' + esc(String(m.text || '').slice(0, 80)) + '</div>' +
+      '</div><span class="chip">' + relTime(m.created_at) + '</span></div>'
+    ).join('') : '<div style="color:var(--text-tertiary);font-size:var(--fs-xs);padding:8px">还没有记忆</div>'
+  } catch (e) {
+    box.innerHTML = errorHtml(e.message)
+  }
+}
+
+async function loadMemAudit() {
+  const box = $('memAudit')
+  if (!box) return
+  try {
+    const r = await api('/dsh-mind-api/audit')
+    const items = ((r && r.items) || []).slice(0, 15)
+    box.innerHTML = items.length ? items.map((a) =>
+      '<div class="memory-row"><div class="body">' +
+        '<div class="meta" style="margin-top:0;margin-bottom:3px">' +
+          '<span class="chip ' + (String(a.action || '').includes('purge') ? 'chip-danger' : '') + '">' +
+            esc(a.action) + '</span>' +
+          '<span class="chip">' + relTime(a.t) + '</span>' +
+        '</div>' +
+        '<div style="font-size:var(--fs-xs);color:var(--text-tertiary)">' +
+          esc(String(a.target || '').slice(0, 60)) + '</div>' +
+      '</div></div>'
+    ).join('') : '<div style="color:var(--text-tertiary);font-size:var(--fs-xs);padding:8px">暂无记录</div>'
+  } catch (e) {
+    box.innerHTML = errorHtml(e.message)
+  }
+}
+
+/* ═══════════════════════════════════════════════════════════════════
+   睡眠页
+   ═══════════════════════════════════════════════════════════════════ */
+
+/* ═══════════════════════════════════════════════════════════════════
+   睡眠页 —— 状态机 + 疲惫值可视化
+   ───────────────────────────────────────────────────────────────────
+   数据来源：/dsh-mind-api/state（唯一真相）
+   本地只做两件事：① 采样缓存用于画曲线 ② 定时重绘
+   数值本身永远由服务端按真实经过时间补算
+   ═══════════════════════════════════════════════════════════════════ */
+
+const FATIGUE_KEY = 'dsh-mind-fatigue-samples-v1'
+
+function readSamples() {
+  try {
+    const a = JSON.parse(localStorage.getItem(FATIGUE_KEY) || '[]')
+    return Array.isArray(a) ? a : []
+  } catch (e) { return [] }
+}
+
+function pushSample(v) {
+  if (typeof v !== 'number' || !isFinite(v)) return readSamples()
+  const a = readSamples()
+  const now = Date.now()
+  const last = a[a.length - 1]
+  // 60 秒内且变化 < 0.6 不重复记录（避免曲线抖成锯齿）
+  if (last && Math.abs(now - last.t) < 60000 && Math.abs(last.v - v) < 0.6) return a
+  a.push({ t: now, v: Math.round(v * 10) / 10 })
+  const cutoff = now - 12 * 3600000
+  const kept = a.filter((x) => x.t >= cutoff).slice(-200)
+  try { localStorage.setItem(FATIGUE_KEY, JSON.stringify(kept)) } catch (e) {}
+  return kept
+}
+
+const SLEEP_TONE = {
+  awake:      { color: '#B8F34A', label: '清醒',    desc: '正常活动，会回复消息' },
+  preparing:  { color: '#E8C06A', label: '准备入睡', desc: '困意明显，正在过渡到睡眠' },
+  sleeping:   { color: '#A77BFF', label: '沉睡中',  desc: '正在睡眠，疲惫值恢复中' },
+  recovering: { color: '#6F86FF', label: '将醒',    desc: '逐渐恢复清醒，即将回到活动' },
+}
+
+function fmtDur(ms) {
+  if (ms == null || ms < 0) return '—'
+  const m = Math.floor(ms / 60000)
+  if (m < 60) return m + ' 分钟'
+  const h = Math.floor(m / 60)
+  const mm = m % 60
+  return h + ' 小时' + (mm ? ' ' + mm + ' 分' : '')
+}
+
+function fmtIn(ms) {
+  if (ms == null) return '—'
+  if (ms <= 0) return '现在'
+  const m = Math.round(ms / 60000)
+  if (m < 60) return m + ' 分钟后'
+  const h = Math.floor(m / 60)
+  const mm = m % 60
+  return h + ' 小时' + (mm ? ' ' + mm + ' 分' : '') + '后'
+}
+
+function timeOf(ts) {
+  if (!ts) return '—'
+  const d = new Date(ts)
+  return String(d.getHours()).padStart(2, '0') + ':' + String(d.getMinutes()).padStart(2, '0')
+}
+
+let sleepTimerId = null
+
+function loadSleepView() {
+  loadSleepState()
+  loadSleepSchedule()
+  loadSleepHistory()
+  if (sleepTimerId) clearInterval(sleepTimerId)
+  sleepTimerId = setInterval(() => {
+    if (currentView === 'sleep') loadSleepState()
+  }, 20000)
+}
+
+/* ───────────── 主渲染 ───────────── */
+
+async function loadSleepState() {
+  let r = null
+  try {
+    r = await api('/dsh-mind-api/state')
+  } catch (e) {
+    const nm = $('sleepStateName')
+    if (nm) { nm.textContent = '读取失败'; nm.style.color = 'var(--danger)' }
+    const ds = $('sleepStateDesc')
+    if (ds) ds.textContent = e.message
+    return
+  }
+  if (!r) return
+
+  const s = r.sleep || {}
+  const tone = SLEEP_TONE[s.state] || SLEEP_TONE.awake
+  const fat = typeof r.fatigue === 'number' ? r.fatigue : (s.fatigue || 0)
+  const v = r.sleepVerdict || {}
+  const TH = r.thresholds || {}
+
+  /* ① 状态卡 */
+  $('sleepStateName').textContent = tone.label
+  $('sleepStateName').style.color = tone.color
+  $('sleepStateDesc').textContent = tone.desc
+
+  const orb = $('sleepOrb')
+  if (orb) {
+    orb.style.setProperty('--state-color', tone.color)
+    orb.style.boxShadow = 'inset 0 0 0 1px ' + tone.color + '55'
+    const a = orb.querySelector('.orb-glow')
+    if (!a) {
+      const g = document.createElement('span')
+      g.className = 'orb-glow'
+      g.style.cssText = 'position:absolute;inset:-7px;border-radius:50%;filter:blur(9px);opacity:0.3;' +
+        'background:' + tone.color + ';animation:orb-breathe 3.6s ease-in-out infinite'
+      orb.appendChild(g)
+    } else {
+      a.style.background = tone.color
+    }
+  }
+  $('sleepOrbDot').style.background = tone.color
+
+  const stateElapsed = s.stateElapsedMs || (Date.now() - (s.since || Date.now()))
+  const sleptMs = s.sleptMs && s.sleptMs > 0 ? s.sleptMs : null
+
+  $('sleepTiming').innerHTML =
+    '<div><div class="k">状态开始</div><div class="v">' + timeOf(s.since) + '</div></div>' +
+    '<div><div class="k">已持续</div><div class="v">' + esc(fmtDur(stateElapsed)) + '</div></div>' +
+    (sleptMs ? '<div><div class="k">本段睡眠</div><div class="v">' + esc(fmtDur(sleptMs)) + '</div></div>' : '') +
+    '<div><div class="k">下次变化</div><div class="v">' + esc(nextChangeText(s, v, TH)) + '</div></div>'
+
+  $('sleepReason').innerHTML = buildReasonText(s, v, TH, fat)
+
+  /* ② 疲惫值卡 */
+  const samples = pushSample(fat)
+  renderFatigue(fat, samples, s, v, TH)
+
+  /* ③ 时间轴 */
+  renderTimeline(s)
+
+  /* ④ 顶部统计同步（同一数据源）*/
+  const topFat = $('statFat')
+  if (topFat) topFat.textContent = Math.round(fat)
+  const topSleep = $('statSleep')
+  if (topSleep) {
+    topSleep.textContent = tone.label
+    topSleep.style.color = s.state === 'awake' ? 'var(--text-primary)' : tone.color
+  }
+}
+
+function nextChangeText(s, v, TH) {
+  const MIN = 60000
+  // ⚠️ 必须用服务端的 sleptMs（真实睡了多久），
+  //    不是 now - since（那是"本次状态开始时"的粗略值）。
+  const elapsed = (typeof s.sleptMs === 'number' && s.sleptMs > 0)
+    ? s.sleptMs
+    : (Date.now() - (s.sleepSessionStartedAt || s.since || Date.now()))
+  if (s.state === 'awake') {
+    if (v.sleep && v.sleep.nextWindowInMs != null) {
+      return '约 ' + fmtIn(v.sleep.nextWindowInMs) + ' 进入睡眠窗口'
+    }
+    return '等待疲惫值累积'
+  }
+  if (s.state === 'preparing') {
+    const need = (TH.preparingMinMs || 15 * MIN)
+    const left = Math.max(0, need - elapsed)
+    return left > 0 ? fmtIn(left) + ' 进入沉睡' : '即将进入沉睡'
+  }
+  if (s.state === 'sleeping') {
+    if (v.wake && v.wake.yes) return '即将转为将醒'
+    const minNeed = (TH.minSleepMs || 45 * MIN)
+    const normalNeed = (TH.normalSleepMs || 90 * MIN)
+    // elapsed = 本段睡眠已持续时间（来自服务端 sleptMs，实时）
+    const leftMin = Math.max(0, minNeed - elapsed)
+    const leftNormal = Math.max(0, normalNeed - elapsed)
+    if (leftMin > 0) {
+      return '还需 ' + fmtDur(leftMin) + ' 达最短睡眠，再 ' +
+        fmtDur(leftNormal) + ' 达常规时长（按疲惫恢复也可能提前醒）'
+    }
+    if (leftNormal > 0) {
+      return '已达最短睡眠，还需 ' + fmtDur(leftNormal) +
+        ' 达常规时长；期间疲惫降到阈值也会醒'
+    }
+    return '已满足常规睡眠时长，等疲惫恢复或作息窗口结束'
+  }
+  if (s.state === 'recovering') {
+    const max = TH.recoveringMaxMs || 40 * MIN
+    const left = Math.max(0, max - elapsed)
+    return left > 0 ? fmtIn(left) + ' 回到清醒' : '立即回到清醒'
+  }
+  return '—'
+}
+
+function buildReasonText(s, v, TH, fat) {
+  const MIN = 60000
+  const parts = []
+  if (s.state === 'awake') {
+    parts.push('<b>为什么清醒：</b>' + esc((v.sleep && v.sleep.why) || '—'))
+    if (v.sleep && v.sleep.nextWindowInMs != null) {
+      parts.push('<b>下次建议休息：</b>' + esc(fmtIn(v.sleep.nextWindowInMs)))
+    }
+  } else if (s.state === 'preparing') {
+    parts.push('<b>为什么准备入睡：</b>' + esc(s.reason || '疲惫值达到入睡条件'))
+  } else if (s.state === 'sleeping') {
+    parts.push('<b>为什么沉睡：</b>' + esc(s.reason || '已进入睡眠'))
+    if (v.wake) parts.push('<b>醒来条件：</b>' + esc(v.wake.why))
+  } else if (s.state === 'recovering') {
+    parts.push('<b>为什么将醒：</b>' + esc(s.reason || '已满足醒来条件'))
+    const left = Math.max(0, (TH.recoveringMaxMs || 40 * MIN) - (s.stateElapsedMs || 0))
+    parts.push('<b>还需：</b>' + esc(fmtIn(left)) + '回到清醒')
+  }
+  if (s.manualOverride) {
+    const o = s.manualOverride
+    parts.push('<b>手动覆盖：</b>' + (o.kind === 'sleep' ? '去睡' : '叫醒') +
+      '，' + esc(fmtIn((o.until || 0) - Date.now())) + '恢复自动判断')
+  }
+  parts.push('<b>疲惫值</b> ' + Math.round(fat) + ' / 100')
+  return parts.join('<br>')
+}
+
+function renderFatigue(fat, samples, s, v, TH) {
+  const col = fat >= 70 ? 'var(--danger)' : (fat >= 45 ? 'var(--warn)' : 'var(--ok)')
+
+  const num = $('fatigueNum')
+  num.textContent = Math.round(fat)
+  num.style.color = col
+
+  const lv = $('fatigueLevel')
+  lv.textContent = fat >= 85 ? '极度疲惫'
+    : (fat >= 70 ? '很累' : (fat >= 45 ? '有些困' : (fat >= 20 ? '状态良好' : '精力充足')))
+  lv.className = 'fatigue-trend ' + (fat >= 45 ? 'up' : 'down')
+
+  // 趋势
+  let trendTxt = '→ 平稳'
+  let trendCls = ''
+  if (samples.length >= 2) {
+    const dv = samples[samples.length - 1].v - samples[0].v
+    const dt = (samples[samples.length - 1].t - samples[0].t) / 3600000
+    if (dv > 1.2) { trendTxt = '↑ 上升中'; trendCls = 'chip-warn' }
+    else if (dv < -1.2) { trendTxt = '↓ 恢复中'; trendCls = 'chip-ok' }
+  }
+  $('fatigueTrendChip').textContent = trendTxt
+  $('fatigueTrendChip').className = 'chip ' + trendCls
+
+  renderFatigueChart(samples, col)
+
+  const rows = []
+  if (s.state === 'awake') {
+    const TH_SLEEP = 70
+    const need = TH_SLEEP - fat
+    if (need > 0) {
+      rows.push(['距入睡阈值', '还需 ' + need.toFixed(1) + ' 点'])
+      rows.push(['预计入睡', '约 ' + fmtIn((need / 6) * 3600000) + '（按当前速率）'])
+    } else {
+      rows.push(['已达阈值', '可进入准备入睡'])
+    }
+    if (v.sleep && v.sleep.nextWindowInMs != null) {
+      rows.push(['下一个窗口', fmtIn(v.sleep.nextWindowInMs)])
+    }
+  } else if (s.state === 'sleeping') {
+    rows.push(['恢复速度', (s.sleptMs && s.sleptMs < 5400000 ? '较快（深睡期）' : '逐渐放缓')])
+    rows.push(['预计醒来', nextChangeText(s, v, TH)])
+  } else if (s.state === 'recovering') {
+    rows.push(['即将清醒', '疲惫值已降至 ' + Math.round(fat)])
+  } else {
+    rows.push(['过渡中', s.reason || '准备入睡'])
+  }
+
+  $('fatigueOutlook').innerHTML = rows.map(function (kv) {
+    return '<div class="row"><span class="k">' + esc(kv[0]) + '</span>' +
+      '<span class="v">' + esc(kv[1]) + '</span></div>'
+  }).join('')
+
+  $('fatigueUpdated').textContent = '更新于 ' + timeOf(s.fatigueAt || Date.now())
+}
+
+function renderFatigueChart(samples, color) {
+  const box = $('fatigueChart')
+  if (!box) return
+  const W = box.clientWidth || 240
+  const H = 72
+  const pad = 6
+
+  if (samples.length < 2) {
+    box.innerHTML = '<div style="height:100%;display:flex;align-items:center;justify-content:center;' +
+      'font-size:10.5px;color:var(--text-tertiary)">数据积累中</div>'
+    return
+  }
+
+  const t0 = samples[0].t
+  const t1 = samples[samples.length - 1].t
+  const span = Math.max(1, t1 - t0)
+  const pts = samples.map(function (x) {
+    const px = pad + ((x.t - t0) / span) * (W - pad * 2)
+    const py = H - pad - (x.v / 100) * (H - pad * 2)
+    return [px, py]
+  })
+
+  let d = ''
+  for (let i = 0; i < pts.length; i++) {
+    d += (i === 0 ? 'M' : 'L') + pts[i][0].toFixed(1) + ' ' + pts[i][1].toFixed(1)
+  }
+  const base = H - pad
+  const areaD = d + ' L' + pts[pts.length - 1][0].toFixed(1) + ' ' + base +
+    ' L' + pts[0][0].toFixed(1) + ' ' + base + ' Z'
+
+  const thrY = base - 0.7 * (H - pad * 2)
+
+  box.innerHTML =
+    '<svg viewBox="0 0 ' + W + ' ' + H + '" preserveAspectRatio="none">' +
+      '<defs><linearGradient id="fgrad" x1="0" y1="0" x2="0" y2="1">' +
+        '<stop offset="0%" stop-color="' + color + '" stop-opacity="0.24"/>' +
+        '<stop offset="100%" stop-color="' + color + '" stop-opacity="0"/>' +
+      '</linearGradient></defs>' +
+      '<line x1="' + pad + '" y1="' + thrY + '" x2="' + (W - pad) + '" y2="' + thrY + '" ' +
+        'stroke="var(--warn)" stroke-width="1" stroke-dasharray="3 3" opacity="0.45"/>' +
+      '<path d="' + areaD + '" fill="url(#fgrad)"/>' +
+      '<path d="' + d + '" stroke="' + color + '" stroke-width="1.6" fill="none" ' +
+        'stroke-linejoin="round" vector-effect="non-scaling-stroke"/>' +
+    '</svg>'
+}
+
+function renderTimeline(s) {
+  const box = $('sleepTimeline')
+  const legend = $('timelineLegend')
+  const chip = $('timelineDate')
+  if (!box) return
+
+  const now = new Date()
+  if (chip) chip.textContent = (now.getMonth() + 1) + '月' + now.getDate() + '日'
+
+  const startOfDay = new Date(now.getFullYear(), now.getMonth(), now.getDate()).getTime()
+  const dayMs = 86400000
+  const nowMs = Date.now()
+  const pos = function (t) { return ((t - startOfDay) / dayMs) * 100 }
+
+  // 作息窗口（背景）
+  const windows = (s.schedule && s.schedule.windows) || []
+  const segs = []
+  for (const w of windows) {
+    if (w.enabled === false) continue
+    const a = String(w.start || '').split(':').map(Number)
+    const b = String(w.end || '').split(':').map(Number)
+    if (!isFinite(a[0]) || !isFinite(b[0])) continue
+    let sa = startOfDay + (a[0] * 60 + (a[1] || 0)) * 60000
+    let sb = startOfDay + (b[0] * 60 + (b[1] || 0)) * 60000
+    const cross = sb <= sa
+    if (cross) sb += dayMs
+
+    const color = w.type === 'nap' ? 'rgba(232,192,106,0.30)' : 'rgba(111,134,255,0.26)'
+    // 前半段（今天内）
+    const f1 = Math.max(0, pos(sa))
+    const t1 = Math.min(100, pos(sb))
+    if (t1 > f1) segs.push('<div class="timeline-seg" style="left:' + f1 + '%;width:' + (t1 - f1) + '%;background:' + color + '"></div>')
+    // 跨午夜的后半段（次日 0 点后）
+    if (cross) {
+      const t2 = Math.max(0, pos(sb - dayMs))
+      if (t2 > 0) segs.push('<div class="timeline-seg" style="left:0%;width:' + t2 + '%;background:' + color + '"></div>')
+    }
+  }
+
+  // 今天真实状态段（从 history 重建）
+  const hist = (s.history || []).slice().reverse()   // 时间正序
+  const bars = []
+  let cur = null
+  for (const h of hist) {
+    if (h.kind !== 'transition' || !h.to) continue
+    if (cur) {
+      const from = Math.max(0, pos(cur.t))
+      const to = Math.min(100, pos(h.at))
+      if (to > from) {
+        const c = (SLEEP_TONE[cur.to] || SLEEP_TONE.awake).color
+        bars.push('<div class="timeline-seg" style="left:' + from + '%;width:' + (to - from) +
+          '%;background:' + c + ';opacity:0.5;top:calc(50% + 10px);height:4px"></div>')
+      }
+    }
+    cur = { t: h.at, to: h.to }
+  }
+  if (cur) {
+    const from = Math.max(0, pos(cur.t))
+    const to = Math.min(100, pos(nowMs))
+    if (to > from) {
+      const c = (SLEEP_TONE[cur.to] || SLEEP_TONE.awake).color
+      bars.push('<div class="timeline-seg" style="left:' + from + '%;width:' + (to - from) +
+        '%;background:' + c + ';opacity:0.5;top:calc(50% + 10px);height:4px"></div>')
+    }
+  }
+
+  let ticks = ''
+  for (let h = 0; h <= 24; h += 6) {
+    const p = (h / 24) * 100
+    ticks += '<div class="timeline-mark" style="left:' + p + '%;opacity:0.22"></div>' +
+      '<div class="timeline-label" style="left:' + p + '%;top:calc(50% + 16px)">' +
+      String(h).padStart(2, '0') + ':00</div>'
+  }
+
+  box.innerHTML = '<div class="timeline-track"></div>' + segs.join('') + bars.join('') + ticks +
+    '<div class="timeline-now" style="left:' + pos(nowMs) + '%"></div>'
+
+  if (legend) {
+    legend.innerHTML =
+      '<span class="item"><span class="sw" style="background:rgba(111,134,255,0.5)"></span>夜间窗口</span>' +
+      '<span class="item"><span class="sw" style="background:rgba(232,192,106,0.5)"></span>午睡窗口</span>' +
+      '<span class="item"><span class="sw" style="background:var(--accent-lime)"></span>当前时刻</span>'
+  }
+}
+
+/* ───────────── 作息表 ───────────── */
+
+async function loadSleepSchedule() {
+  const box = $('sleepSchedule')
+  if (!box) return
+
+  let r = null
+  try { r = await api('/dsh-mind-api/sleep/schedule') } catch (e) {
+    box.innerHTML = errorHtml(e.message)
+    return
+  }
+
+  const cfg = (r && r.schedule) || {}
+  const wins = cfg.windows || []
+  $('schedAuto').checked = cfg.auto !== false
+  $('schedFixed').checked = cfg.preferFixedTime === true
+
+  // 冲突检测
+  function toMin(s) {
+    const a = String(s || '').split(':').map(Number)
+    if (!isFinite(a[0])) return null
+    return a[0] * 60 + (a[1] || 0)
+  }
+  const conflicts = []
+  for (let i = 0; i < wins.length; i++) {
+    if (wins[i].enabled === false) continue
+    const a = toMin(wins[i].start), b = toMin(wins[i].end)
+    if (a == null || b == null) continue
+    for (let j = i + 1; j < wins.length; j++) {
+      if (wins[j].enabled === false) continue
+      const c = toMin(wins[j].start), d = toMin(wins[j].end)
+      if (c == null || d == null) continue
+      if (Math.max(a, c) < Math.min(b, d)) {
+        conflicts.push('「' + (wins[i].name || '时段') + '」与「' + (wins[j].name || '时段') + '」重叠')
+      }
+    }
+  }
+  $('schedConflict').innerHTML = conflicts.length
+    ? conflicts.map(function (c) { return '⚠ ' + esc(c) }).join('<br>')
+    : ''
+
+  box.innerHTML = wins.map(function (w, i) {
+    return '<div class="sched-row' + (conflicts.length ? ' conflict' : '') + '">' +
+      '<input type="checkbox" class="wEn" data-i="' + i + '" ' + (w.enabled ? 'checked' : '') +
+        ' style="width:auto;accent-color:var(--accent-blue);flex-shrink:0">' +
+      '<input class="sched-name wFld" data-i="' + i + '" data-f="name" value="' + esc(w.name || '') + '">' +
+      '<input type="time" class="sched-time wFld" data-i="' + i + '" data-f="start" value="' + esc(w.start || '') + '">' +
+      '<span style="font-size:10px;color:var(--text-disabled)">→</span>' +
+      '<input type="time" class="sched-time wFld" data-i="' + i + '" data-f="end" value="' + esc(w.end || '') + '">' +
+      '<button class="btn btn-danger btn-sm" data-rm="' + i + '" ' +
+        'style="padding:0 6px;height:22px;min-width:22px;font-size:13px;line-height:1">×</button>' +
+      '</div>'
+  }).join('') +
+    '<div style="font-size:10.5px;color:var(--text-tertiary);margin-top:8px;line-height:1.7">' +
+      '跨午夜写 23:30 → 08:30。一天可有多段（夜间 + 午睡）。</div>'
+
+  function collect() {
+    const byIdx = new Map()
+    box.querySelectorAll('.wFld').forEach(function (el) {
+      const i = Number(el.dataset.i)
+      if (!byIdx.has(i)) byIdx.set(i, {})
+      byIdx.get(i)[el.dataset.f] = el.value
+    })
+    box.querySelectorAll('.wEn').forEach(function (el) {
+      const i = Number(el.dataset.i)
+      if (!byIdx.has(i)) byIdx.set(i, {})
+      byIdx.get(i).enabled = el.checked
+    })
+    return [...byIdx.entries()].sort(function (a, b) { return a[0] - b[0] })
+      .map(function (e, idx) {
+        const w = e[1]
+        return {
+          name: w.name || '时段',
+          start: w.start || '23:00',
+          end: w.end || '07:00',
+          type: idx === 0 ? 'night' : 'nap',
+          enabled: w.enabled !== false,
+        }
+      })
+  }
+
+  async function save() {
+    try {
+      const rr = await post('/dsh-mind-api/sleep/schedule', {
+        auto: $('schedAuto').checked,
+        preferFixedTime: $('schedFixed').checked,
+        windows: collect(),
+      })
+      if (rr && rr.ok) {
+        toast('作息已保存', 'ok')
+        loadSleepSchedule()
+        loadSleepState()
+        loadSleepHistory()
+      } else {
+        toast((rr && rr.error) || '保存失败', 'err')
+      }
+    } catch (e) { toast(e.message, 'err') }
+  }
+
+  box.querySelectorAll('.wFld').forEach(function (el) { el.addEventListener('change', save) })
+  box.querySelectorAll('.wEn').forEach(function (el) { el.addEventListener('change', save) })
+  box.querySelectorAll('[data-rm]').forEach(function (b) {
+    b.onclick = function () {
+      const cur = wins.slice()
+      cur.splice(Number(b.dataset.rm), 1)
+      post('/dsh-mind-api/sleep/schedule', {
+        auto: $('schedAuto').checked,
+        preferFixedTime: $('schedFixed').checked,
+        windows: cur,
+      }).then(function () { loadSleepSchedule(); loadSleepState() })
+        .catch(function (e) { toast(e.message, 'err') })
+    }
+  })
+}
+
+/* ───────────── 判断记录 ───────────── */
+
+async function loadSleepHistory() {
+  const box = $('sleepHistory')
+  if (!box) return
+  try {
+    const r = await api('/dsh-mind-api/sleep/history')
+    const items = (r && r.items) || []
+    if (!items.length) {
+      box.innerHTML = '<div style="color:var(--text-tertiary);font-size:var(--fs-xs);padding:10px">' +
+        '还没有状态记录，状态变化后会出现在这里</div>'
+      return
+    }
+    box.innerHTML = items.slice(0, 18).map(function (h) {
+      const to = SLEEP_TONE[h.to]
+      const from = SLEEP_TONE[h.from]
+      return '<div class="sleep-hist-item">' +
+        '<span class="sleep-hist-time">' + timeOf(h.at) + '</span>' +
+        '<div class="sleep-hist-body">' +
+          '<div class="sleep-hist-reason">' + esc(h.reason || h.kind) + '</div>' +
+          '<div class="sleep-hist-meta">' +
+            (from && h.to
+              ? '<span style="color:' + from.color + '">' + from.label + '</span><span>→</span>' +
+                '<span style="color:' + (to || SLEEP_TONE.awake).color + '">' + (to || SLEEP_TONE.awake).label + '</span>'
+              : '') +
+            (h.fatigue != null ? '<span>疲惫 ' + Math.round(h.fatigue) + '</span>' : '') +
+          '</div>' +
+        '</div></div>'
+    }).join('')
+  } catch (e) {
+    box.innerHTML = errorHtml(e.message)
+  }
+}
+
+/* ───────────── 整理进度 ───────────── */
+
+async function loadSleepSteps() {
+  const box = $('sleepSteps')
+  if (!box) return
+  try {
+    const r = await api('/dsh-mind-api/state')
+    const task = r && r.sleep && r.sleep.task
+    const step = task ? task.step : 0
+    const names = ['快照', '汇总', '情景抽取', '去重', '合并', '长期候选', '关系',
+      '日记索引', '偏好', '重建索引', '遗忘标记', '报告', '提交']
+    box.innerHTML = names.map(function (nm, i) {
+      const done = (i + 1) <= step
+      return '<div style="display:flex;gap:8px;padding:2px 0;font-size:var(--fs-xs)">' +
+        '<span style="width:16px;color:' + (done ? 'var(--ok)' : 'var(--text-disabled)') + '">' +
+          (done ? '✓' : (i + 1)) + '</span>' +
+        '<span style="color:' + (done ? 'var(--text-secondary)' : 'var(--text-disabled)') + '">' +
+          nm + '</span></div>'
+    }).join('') +
+      '<div style="font-size:10.5px;color:var(--text-tertiary);margin-top:8px">' +
+        '整理与是否睡醒无关：整理完成不会强制改变睡眠状态。</div>'
+  } catch (e) { box.innerHTML = errorHtml(e.message) }
+}
+/* ═══════════════════════════════════════════════════════════════════
+   角色卡页
+   ═══════════════════════════════════════════════════════════════════ */
+
+async function loadRoleView() {
+  const list = $('roleList')
+  const prev = $('rolePreview')
+  list.innerHTML = loadingHtml()
+  prev.innerHTML = emptyHtml('选择一张卡', '点击左侧查看角色卡全文')
+
+  try {
+    const r = await api('/dsh-mind-api/bridge/api/roles')
+    if (!r || !Array.isArray(r.roles)) { list.innerHTML = errorHtml((r && r.error) || 'bridge 返回异常'); return }
+
+    const names = r.roles
+    $('roleCount').textContent = names.length + ' 张'
+    const sums = new Map((r.summaries || []).map((s) => [s.name, s]))
+
+    list.innerHTML = names.map((n) => {
+      const s = sums.get(n) || {}
+      return '<div class="memory-row" data-role="' + esc(n) + '"><div class="body">' +
+        '<div style="font-size:var(--fs-sm);color:var(--text-primary)">' + esc(n) + '</div>' +
+        '<div class="meta">' +
+          '<span class="chip">' + (s.chars || '—') + ' 字</span>' +
+          '<span class="chip">' + (s.lines || '—') + ' 行</span>' +
+          (s.warnings ? '<span class="chip chip-warn">' + s.warnings + ' 警告</span>' : '') +
+        '</div></div></div>'
+    }).join('')
+
+    if (!list.dataset.delegated) {
+      list.dataset.delegated = '1'
+      list.addEventListener('click', (ev) => {
+        const row = ev.target.closest ? ev.target.closest('[data-role]') : null
+        if (row) showRole(row.dataset.role)
+      })
+    }
+
+    const cur = names.find((n) => n === 'AI') || names[0]
+    if (cur) showRole(cur)
+  } catch (e) {
+    list.innerHTML = errorHtml(e.message)
+  }
+}
+
+async function showRole(name) {
+  const prev = $('rolePreview')
+  prev.innerHTML = loadingHtml('读取 ' + name)
+  try {
+    const r = await api('/dsh-mind-api/bridge/api/roles/content?name=' + encodeURIComponent(name))
+    if (!r || r.error) { prev.innerHTML = errorHtml((r && r.error) || '读取失败'); return }
+    const text = String(r.content || r.text || r.body || '')
+    prev.innerHTML =
+      '<div style="display:flex;gap:8px;margin-bottom:10px">' +
+        '<span class="chip chip-info">' + esc(name) + '</span>' +
+        '<span class="chip">' + text.length + ' 字</span>' +
+      '</div>' +
+      '<div class="body-block" style="max-height:56vh">' + esc(text) + '</div>'
+  } catch (e) {
+    prev.innerHTML = errorHtml(e.message)
+  }
+}
+
+/* ═══════════════════════════════════════════════════════════════════
+   消费页
+   ═══════════════════════════════════════════════════════════════════ */
+
+async function loadTokenView() {
+  const sum = $('tokenSummary')
+  const rec = $('tokenRecent')
+  sum.innerHTML = loadingHtml('读取用量')
+
+  const fmt = (v) => {
+    if (v == null) return '—'
+    if (v >= 1e8) return (v / 1e8).toFixed(2) + ' 亿'
+    if (v >= 1e4) return (v / 1e4).toFixed(1) + ' 万'
+    return String(v)
+  }
+
+  try {
+    const r = await api('/dsh-mind-api/bridge/api/tokens/summary')
+    if (!r || (r.ok === false && r.error)) { sum.innerHTML = errorHtml((r && r.error) || '读取失败'); return }
+
+    const tier = r.nowTier || {}
+    const tot = r.totals || {}
+    const bk = tot.buckets || {}
+    const rate = tot.cacheHitRate != null ? (tot.cacheHitRate * 100).toFixed(1) + '%' : '—'
+    const money = (v, d) => v == null ? '—' : (r.symbol || '¥') + Number(v).toFixed(d == null ? 2 : d)
+
+    sum.innerHTML =
+      '<div class="metric-row" style="margin-bottom:16px">' +
+        '<div class="metric"><div class="metric-value">' + money(tot.cost) + '</div><div class="metric-label">累计花费</div></div>' +
+        '<div class="metric"><div class="metric-value">' + fmt(tot.inputTokens) + '</div><div class="metric-label">输入 tokens</div></div>' +
+        '<div class="metric"><div class="metric-value">' + fmt(bk.output) + '</div><div class="metric-label">输出 tokens</div></div>' +
+      '</div>' +
+      '<div class="kv-grid">' +
+        '<div class="kv-key">模型</div><div class="kv-val">' + esc(tier.model || '—') + '</div>' +
+        '<div class="kv-key">计价版本</div><div class="kv-val">' + esc(r.priceVersion || '—') + '</div>' +
+        '<div class="kv-key">缓存命中</div><div class="kv-val">' + esc(rate) + '（读 ' + fmt(bk.cacheHit) + '）</div>' +
+        '<div class="kv-key">轮次/步</div><div class="kv-val">' + (tot.turns != null ? tot.turns : '—') +
+          ' / ' + (tot.steps != null ? tot.steps : '—') + '</div>' +
+        '<div class="kv-key">每轮均耗</div><div class="kv-val">' + money(tot.avgCostPerTurn, 3) + '</div>' +
+      '</div>'
+  } catch (e) {
+    sum.innerHTML = errorHtml(e.message)
+  }
+
+  rec.innerHTML = loadingHtml()
+  try {
+    const r2 = await api('/dsh-mind-api/bridge/api/tokens/recent')
+    if (!r2 || (r2.ok === false && r2.error)) { rec.innerHTML = errorHtml((r2 && r2.error) || '读取失败'); return }
+    const items = (r2.entries || r2.items || r2.turns || []).slice(0, 16)
+    const sym = r2.symbol || '¥'
+    const kf = (v) => v == null ? '—' : (v >= 1e4 ? (v / 1e4).toFixed(1) + 'k' : String(v))
+
+    rec.innerHTML = items.length ? items.map((t) =>
+      '<div class="memory-row"><div class="body">' +
+        '<div style="font-size:var(--fs-xs);color:var(--text-secondary)">' +
+          esc(t.model || '—') + (t.turn != null ? ' · 轮 ' + t.turn : '') +
+          (t.step != null ? ' 步 ' + t.step : '') + '</div>' +
+        '<div class="meta" style="margin-top:2px">' +
+          '<span class="chip">' + fmtClock(t.time) + '</span>' +
+          '<span class="chip">总 ' + kf(t.tokens) + '</span>' +
+        '</div></div>' +
+        '<span class="chip">命中 ' + kf(t.cacheHit) + '</span>' +
+        (t.cost != null ? '<span class="chip chip-info">' + sym + Number(t.cost).toFixed(4) + '</span>' : '') +
+      '</div>'
+    ).join('') : emptyHtml('暂无记录', '还没有令牌消费')
+  } catch (e) {
+    rec.innerHTML = errorHtml(e.message)
+  }
+}
+
+/* ═══════════════════════════════════════════════════════════════════
+   设置页 —— 由后端 schema 自动渲染
+   ═══════════════════════════════════════════════════════════════════ */
+
+/* ═══════════════════════════════════════════════════════════════════
+   设置页 —— 由后端 schema 自动渲染表单
+   ───────────────────────────────────────────────────────────────────
+   后端 /settings 返回 { schema, values }，前端按 type 渲染对应控件。
+   新增参数只需改 lib/config.js 的 SCHEMA，这里不用动。
+   ═══════════════════════════════════════════════════════════════════ */
+
+let SET_SCHEMA = null
+let SET_VALUES = {}
+let SET_ORIGINAL = {}
+let SET_ACTIVE_GROUP = ''
+const SET_DIRTY = new Set()
+
+/* ───────────── 加载 ───────────── */
+
+async function loadSettings() {
+  const body = $('settingsBody')
+  const tabs = $('settingsTabs')
+  if (!body) return
+
+  body.innerHTML = loadingHtml('读取配置')
+  try {
+    const r = await api('/dsh-mind-api/settings')
+    if (!r || !r.ok) { body.innerHTML = errorHtml((r && r.error) || '读取失败'); return }
+
+    SET_SCHEMA = r.schema
+    SET_VALUES = Object.assign({}, r.values)
+    SET_ORIGINAL = Object.assign({}, r.values)
+    SET_DIRTY.clear()
+
+    $('settingsFile').textContent = r.file || 'settings.json'
+    const lf = $('settingsLoaded')
+    lf.textContent = r.loadedFrom === 'file' ? '来自文件' : '默认值'
+    lf.className = 'chip ' + (r.loadedFrom === 'file' ? 'chip-ok' : '')
+
+    // 默认展开第一组
+    const groups = Object.keys(SET_SCHEMA)
+    if (!SET_ACTIVE_GROUP || !SET_SCHEMA[SET_ACTIVE_GROUP]) SET_ACTIVE_GROUP = groups[0]
+
+    renderSettingsTabs()
+    renderSettingsBody()
+    updateSettingsStatus()
+  } catch (e) {
+    body.innerHTML = errorHtml(e.message)
+  }
+}
+
+/* ───────────── 分组标签 ───────────── */
+
+function renderSettingsTabs() {
+  const box = $('settingsTabs')
+  if (!box || !SET_SCHEMA) return
+  const groups = Object.keys(SET_SCHEMA)
+
+  box.innerHTML = groups.map((k) => {
+    const g = SET_SCHEMA[k]
+    const n = Object.keys(g.fields).length
+    return '<button class="settings-tab' + (k === SET_ACTIVE_GROUP ? ' on' : '') +
+      '" data-g="' + esc(k) + '">' + esc(g.label || k) +
+      ' <span style="opacity:.6">' + n + '</span></button>'
+  }).join('')
+
+  box.querySelectorAll('[data-g]').forEach((b) => {
+    b.onclick = () => {
+      SET_ACTIVE_GROUP = b.dataset.g
+      renderSettingsTabs()
+      renderSettingsBody()
+    }
+  })
+}
+
+/* ───────────── 表单渲染 ───────────── */
+
+function renderSettingsBody() {
+  const box = $('settingsBody')
+  if (!box || !SET_SCHEMA) return
+  const g = SET_SCHEMA[SET_ACTIVE_GROUP]
+  if (!g) { box.innerHTML = emptyHtml('没有配置项'); return }
+
+  const rows = Object.keys(g.fields).map((fk) => {
+    const def = g.fields[fk]
+    const key = SET_ACTIVE_GROUP + '.' + fk
+    const val = SET_VALUES[key]
+    return renderField(key, fk, def, val)
+  }).join('')
+
+  box.innerHTML =
+    '<div class="settings-group">' +
+      '<div class="settings-group-head">' +
+        '<h3>' + esc(g.label || SET_ACTIVE_GROUP) + '</h3>' +
+        '<div class="desc">' + esc(g.desc || '') + '</div>' +
+        '<button class="btn btn-ghost btn-sm" data-reset="' + esc(SET_ACTIVE_GROUP) + '">本组重置</button>' +
+      '</div>' +
+      '<div class="settings-group-body">' + rows + '</div>' +
+    '</div>'
+
+  bindFieldEvents(box)
+
+  const rb = box.querySelector('[data-reset]')
+  if (rb) rb.onclick = () => resetGroup(rb.dataset.reset)
+}
+
+function renderField(key, fieldKey, def, val) {
+  const dirty = SET_DIRTY.has(key)
+  const id = 'f_' + key.replace(/\./g, '_')
+
+  let control = ''
+
+  if (def.type === 'bool') {
+    control =
+      '<label class="toggle">' +
+        '<input type="checkbox" id="' + id + '" data-key="' + esc(key) + '" ' + (val ? 'checked' : '') + '>' +
+        '<span class="toggle-track"></span>' +
+      '</label>'
+  } else if (def.type === 'num') {
+    const hasSlider = def.min != null && def.max != null &&
+      (def.max - def.min) / (def.step || 1) <= 200
+    control =
+      (hasSlider
+        ? '<input type="range" class="num-slider" id="' + id + '_r" data-key="' + esc(key) +
+          '" min="' + def.min + '" max="' + def.max + '" step="' + (def.step || 1) + '" value="' + val + '">'
+        : '') +
+      '<input type="number" class="num-input" id="' + id + '" data-key="' + esc(key) +
+        '" value="' + val + '"' +
+        (def.min != null ? ' min="' + def.min + '"' : '') +
+        (def.max != null ? ' max="' + def.max + '"' : '') +
+        ' step="' + (def.step || 1) + '">' +
+      (def.unit ? '<span class="num-unit">' + esc(def.unit) + '</span>' : '')
+  } else if (def.type === 'enum') {
+    control = '<select class="field-select" id="' + id + '" data-key="' + esc(key) + '">' +
+      def.options.map((o) => '<option value="' + esc(o) + '"' +
+        (o === val ? ' selected' : '') + '>' + esc(o) + '</option>').join('') +
+      '</select>'
+  } else if (def.type === 'list') {
+    control = '<div class="field-multi" data-key="' + esc(key) + '">' +
+      def.options.map((o) => {
+        const on = Array.isArray(val) && val.includes(o)
+        return '<span class="multi-chip' + (on ? ' on' : '') +
+          '" data-opt="' + esc(o) + '">' + esc(o) + '</span>'
+      }).join('') +
+      '</div>'
+  } else if (def.type === 'text') {
+    const wide = String(val || '').length > 20 || /路径|path|dir/i.test(fieldKey)
+    control = '<input type="text" class="field-text' + (wide ? ' wide' : '') +
+      '" id="' + id + '" data-key="' + esc(key) + '" value="' + esc(val == null ? '' : val) +
+      '" placeholder="' + esc(def.desc && def.desc.includes('留空') ? '留空则自动' : '') + '">'
+  }
+
+  return '<div class="field-row' + (dirty ? ' changed' : '') + '" data-row="' + esc(key) + '">' +
+    '<div class="field-info">' +
+      '<div class="field-label">' + esc(def.label || fieldKey) +
+        (dirty ? '<span class="badge">已改</span>' : '') +
+      '</div>' +
+      (def.desc ? '<div class="field-desc">' + esc(def.desc) + '</div>' : '') +
+    '</div>' +
+    '<div class="field-control">' + control + '</div>' +
+  '</div>'
+}
+
+/* ───────────── 事件绑定 ───────────── */
+
+function bindFieldEvents(box) {
+  /* 数字 + 滑块：双向同步 */
+  box.querySelectorAll('input[data-key]').forEach((inp) => {
+    const key = inp.dataset.key
+    const type = inp.type
+
+    const onChange = (v) => {
+      let nv
+      if (type === 'checkbox') nv = inp.checked
+      else if (type === 'number' || type === 'range') {
+        nv = Number(v)
+        if (!isFinite(nv)) nv = SET_ORIGINAL[key]
+        // 夹到范围
+        const [g, f] = key.split('.')
+        const fdef = SET_SCHEMA[g].fields[f]
+        if (fdef.min != null) nv = Math.max(fdef.min, nv)
+        if (fdef.max != null) nv = Math.min(fdef.max, nv)
+      } else nv = v
+
+      SET_VALUES[key] = nv
+      // 同步滑块与数字框
+      const baseId = 'f_' + key.replace(/\./g, '_')
+      if (type === 'range') {
+        const num = $(baseId)
+        if (num) num.value = nv
+      } else if (type === 'number') {
+        const sl = $(baseId + '_r')
+        if (sl) sl.value = nv
+      }
+      markDirty(key)
+      updateSettingsStatus()
+    }
+
+    inp.addEventListener(type === 'range' ? 'input' : 'change', () => onChange(inp.value))
+    if (type === 'number') {
+      inp.addEventListener('input', () => {
+        // 输入过程中不夹范围，失焦再夹
+      })
+      inp.addEventListener('blur', () => onChange(inp.value))
+    }
+  })
+
+  /* 多选 */
+  box.querySelectorAll('.field-multi[data-key]').forEach((multi) => {
+    const key = multi.dataset.key
+    multi.querySelectorAll('[data-opt]').forEach((chip) => {
+      chip.onclick = () => {
+        const opt = chip.dataset.opt
+        const cur = Array.isArray(SET_VALUES[key]) ? SET_VALUES[key].slice() : []
+        const i = cur.indexOf(opt)
+        if (i >= 0) cur.splice(i, 1)
+        else cur.push(opt)
+        SET_VALUES[key] = cur
+        chip.classList.toggle('on', i < 0)
+        markDirty(key)
+        updateSettingsStatus()
+      }
+    })
+  })
+}
+
+function markDirty(key) {
+  const orig = SET_ORIGINAL[key]
+  const now = SET_VALUES[key]
+  let same
+  if (Array.isArray(orig) && Array.isArray(now)) {
+    same = orig.length === now.length && orig.every((x) => now.includes(x))
+  } else {
+    same = orig === now
+  }
+
+  if (same) SET_DIRTY.delete(key)
+  else SET_DIRTY.add(key)
+
+  // 更新行样式与徽标
+  const row = document.querySelector('[data-row="' + key.replace(/"/g, '\\"') + '"]')
+  if (row) {
+    row.classList.toggle('changed', !same)
+    const lab = row.querySelector('.field-label')
+    if (lab) {
+      let badge = lab.querySelector('.badge')
+      if (!same && !badge) {
+        badge = document.createElement('span')
+        badge.className = 'badge'
+        badge.textContent = '已改'
+        lab.appendChild(badge)
+      } else if (same && badge) {
+        badge.remove()
+      }
+    }
+  }
+}
+
+function updateSettingsStatus() {
+  const st = $('settingsStatus')
+  if (!st) return
+  const n = SET_DIRTY.size
+  if (n === 0) {
+    st.textContent = '未修改'
+    st.className = 'status'
+  } else {
+    st.textContent = n + ' 项待保存'
+    st.className = 'status dirty'
+  }
+  const saveBtn = $('settingsSave')
+  if (saveBtn) saveBtn.disabled = n === 0
+}
+
+/* ───────────── 保存 / 重置 ───────────── */
+
+async function saveSettings() {
+  if (SET_DIRTY.size === 0) { toast('没有需要保存的改动', 'ok'); return }
+  const patch = {}
+  for (const k of SET_DIRTY) patch[k] = SET_VALUES[k]
+
+  const btn = $('settingsSave')
+  if (btn) { btn.disabled = true; btn.textContent = '保存中…' }
+
+  try {
+    const r = await post('/dsh-mind-api/settings', { values: patch })
+    if (r && r.ok) {
+      SET_VALUES = Object.assign({}, r.values)
+      SET_ORIGINAL = Object.assign({}, r.values)
+      SET_DIRTY.clear()
+      renderSettingsBody()
+      updateSettingsStatus()
+      toast('已保存 ' + (r.applied ? r.applied.length : patch.length) + ' 项设置', 'ok')
+      // 有些设置影响底部统计，刷新一下
+      loadStats()
+    } else {
+      toast((r && r.error) || '保存失败', 'err')
+    }
+  } catch (e) {
+    toast(e.message, 'err')
+  } finally {
+    if (btn) { btn.disabled = false; btn.textContent = '保存' }
+  }
+}
+
+async function resetGroup(groupName) {
+  const label = (SET_SCHEMA[groupName] && SET_SCHEMA[groupName].label) || groupName
+  if (!confirm('把「' + label + '」这一组恢复默认值？')) return
+  try {
+    const r = await post('/dsh-mind-api/settings/reset', { group: groupName })
+    if (r && r.ok) {
+      SET_VALUES = Object.assign({}, r.values)
+      SET_ORIGINAL = Object.assign({}, r.values)
+      SET_DIRTY.clear()
+      renderSettingsBody()
+      updateSettingsStatus()
+      toast('「' + label + '」已恢复默认', 'ok')
+    } else toast((r && r.error) || '重置失败', 'err')
+  } catch (e) { toast(e.message, 'err') }
+}
+
+async function resetAllSettings() {
+  if (!confirm('把所有设置恢复默认？这会清掉全部自定义参数。')) return
+  try {
+    const r = await post('/dsh-mind-api/settings/reset', {})
+    if (r && r.ok) {
+      SET_VALUES = Object.assign({}, r.values)
+      SET_ORIGINAL = Object.assign({}, r.values)
+      SET_DIRTY.clear()
+      renderSettingsBody()
+      updateSettingsStatus()
+      toast('全部设置已恢复默认', 'ok')
+    } else toast((r && r.error) || '重置失败', 'err')
+  } catch (e) { toast(e.message, 'err') }
+}
+
+
+/* ═══════════════════════════════════════════════════════════════════
+   系统页
+   ═══════════════════════════════════════════════════════════════════ */
+
+async function loadSysView() {
+  loadSysConn()
+  loadSysDb()
+}
+
+async function loadSysConn() {
+  const box = $('sysConn')
+  const act = $('sysActivity')
+  box.innerHTML = loadingHtml('检测服务')
+
+  const rows = []
+
+  let t0 = performance.now()
+  let mindOk = false
+  try { await api('/dsh-mind-api/state'); mindOk = true } catch (e) {}
+  rows.push({ name: 'dsh-mind 记忆库', ok: mindOk, detail: Math.round(performance.now() - t0) + 'ms' })
+
+  let bridge = null
+  let bOk = false
+  t0 = performance.now()
+  try {
+    const r = await api('/dsh-mind-api/bridge-status')
+    if (r && r.ok !== false) { bridge = r; bOk = true }
+  } catch (e) {}
+  rows.push({ name: 'qq-bridge 控制台', ok: bOk,
+    detail: bOk ? ((bridge.mode || '') + ' · ' + Math.round(performance.now() - t0) + 'ms') : '未连接' })
+
+  const snow = bridge && bridge.snowluma
+  rows.push({
+    name: 'SnowLuma 协议端',
+    ok: !!(snow && snow.connected),
+    detail: snow ? (snow.connected
+      ? (snow.accountOnline ? '在线' : '已连接·离线') +
+        (snow.lastPacketAgoMs != null ? ' · 心跳 ' + Math.round(snow.lastPacketAgoMs / 1000) + 's' : '')
+      : '未连接') : '未知',
+  })
+
+  rows.push({
+    name: 'DSH 宿主',
+    ok: !!(bridge && bridge.dshReady),
+    detail: (bridge && bridge.role) ? '角色 ' + bridge.role : '未知',
+  })
+
+  box.innerHTML = rows.map((x) =>
+    '<div style="display:flex;align-items:center;gap:9px;padding:8px 0;border-bottom:1px solid var(--line-subtle)">' +
+      '<span class="status-led ' + (x.ok ? 'on' : 'off') + '"></span>' +
+      '<span style="flex:1;font-size:var(--fs-sm);color:var(--text-secondary)">' + esc(x.name) + '</span>' +
+      '<span class="numeric" style="font-size:var(--fs-xs);color:var(--text-tertiary)">' + esc(x.detail) + '</span>' +
+    '</div>'
+  ).join('')
+
+  if (act) {
+    const txt = (bridge && bridge.activity) ? String(bridge.activity) : ''
+    const lines = txt.split('\n').filter(Boolean).slice(-6).reverse()
+    act.innerHTML = lines.length
+      ? lines.map((l) => '<div style="font-size:var(--fs-xs);color:var(--text-tertiary);padding:3px 0;line-height:1.6">' +
+          esc(l.slice(0, 74)) + '</div>').join('')
+      : '<div style="color:var(--text-tertiary);font-size:var(--fs-xs);padding:8px">无活动记录</div>'
+  }
+}
+
+async function loadSysDb() {
+  const box = $('sysDb')
+  box.innerHTML = loadingHtml()
+  try {
+    const r = await api('/dsh-mind-api/state')
+    const st = r.stats || {}
+    box.innerHTML =
+      '<div class="kv-grid">' +
+        '<div class="kv-key">引擎</div><div class="kv-val">SQLite · WAL</div>' +
+        '<div class="kv-key">索引</div><div class="kv-val">FTS5 · 中文 bigram</div>' +
+        '<div class="kv-key">记忆</div><div class="kv-val">' + (st.total != null ? st.total : '—') +
+          ' 条（归档 ' + (st.archived != null ? st.archived : 0) + '）</div>' +
+        '<div class="kv-key">实体</div><div class="kv-val">' + (st.entities != null ? st.entities : '—') + '</div>' +
+        '<div class="kv-key">体积</div><div class="kv-val">' + ((st.dbBytes || 0) / 1024).toFixed(1) + ' KB</div>' +
+        '<div class="kv-key">注入</div><div class="kv-val">' +
+          (r.inject && r.inject.enabled ? '<span class="chip chip-ok">开启</span>' : '<span class="chip chip-warn">关闭</span>') + '</div>' +
+      '</div>' +
+      '<div style="font-size:var(--fs-xs);color:var(--text-disabled);margin-top:12px;word-break:break-all;line-height:1.7">' +
+        'dsh-web-home\\dsh-mind\\memory.db</div>'
+
+    $('sysAbout').innerHTML =
+      '<div style="font-size:var(--fs-xs);color:var(--text-tertiary);line-height:1.9">' +
+        '统一记忆 / 情绪 / 睡眠插件<br>' +
+        '数据全部来自真实记忆库，无演示数据<br>' +
+        '删除操作会物理移除数据库行并留审计' +
+      '</div>'
+  } catch (e) {
+    box.innerHTML = errorHtml(e.message)
+  }
+}
+
+/* ═══════════════════════════════════════════════════════════════════
+   事件绑定
+   ═══════════════════════════════════════════════════════════════════ */
+
+function bindEvents() {
+  /* ── 点击品牌名可修改（持久化到 state.json）── */
+  const brand = $('brandName')
+  if (brand) {
+    brand.style.cursor = 'pointer'
+    brand.addEventListener('click', async () => {
+      const cur = brand.textContent
+      const next = prompt('给这个记忆宇宙起个名字：', cur === '·' ? '' : cur)
+      if (next == null) return
+      const name = next.trim()
+      if (!name) { toast('名字不能为空', 'err'); return }
+      try {
+        const r = await post('/dsh-mind-api/role-name', { name })
+        if (r && r.ok) {
+          applyRoleName(r.role)
+          toast('名字已改为「' + name + '」', 'ok')
+        } else toast((r && r.error) || '改名失败', 'err')
+      } catch (e) { toast(e.message, 'err') }
+    })
+  }
+
+  /* ── 星图：搜索 ── */
+  const search = $('skySearch')
+  if (search) {
+    let t = null
+    search.addEventListener('input', () => {
+      clearTimeout(t)
+      t = setTimeout(() => doSkySearch(search.value), 320)
+    })
+    search.addEventListener('keydown', (ev) => {
+      if (ev.key === 'Enter') { clearTimeout(t); doSkySearch(search.value) }
+    })
+  }
+
+  /* ── 星图：显示开关 ── */
+  const tgLabels = $('tgLabels')
+  const tgHalo = $('tgHalo')
+  const tgRotate = $('tgRotate')
+
+  function syncDock() {
+    $('dkLabels').classList.toggle('active', tgLabels.checked)
+    $('dkHalo').classList.toggle('active', tgHalo.checked)
+    $('dkRotate').classList.toggle('active', tgRotate.checked)
+  }
+  ;[tgLabels, tgHalo, tgRotate].forEach((cb) => {
+    if (!cb) return
+    cb.addEventListener('change', () => {
+      if (U) {
+        U.setOption('labels', tgLabels.checked)
+        U.setOption('halo', tgHalo.checked)
+        U.setAutoRotate(tgRotate.checked)
+      }
+      syncDock()
+      updateLabels()
+    })
+  })
+
+  /* ── 星图：左下控制条 ── */
+  const dkReset = $('dkReset')
+  if (dkReset) dkReset.onclick = () => {
+    if (U) U.fitAll()
+    selectedCluster = null
+    renderClusterFilter()
+    toast('视角已重置', 'ok')
+  }
+
+  const dkLabels = $('dkLabels')
+  if (dkLabels) dkLabels.onclick = () => {
+    tgLabels.checked = !tgLabels.checked
+    tgLabels.dispatchEvent(new Event('change'))
+  }
+  const dkHalo = $('dkHalo')
+  if (dkHalo) dkHalo.onclick = () => {
+    tgHalo.checked = !tgHalo.checked
+    tgHalo.dispatchEvent(new Event('change'))
+  }
+  const dkRotate = $('dkRotate')
+  if (dkRotate) dkRotate.onclick = () => {
+    tgRotate.checked = !tgRotate.checked
+    tgRotate.dispatchEvent(new Event('change'))
+  }
+  const dkIn = $('dkZoomIn')
+  if (dkIn) dkIn.onclick = () => { if (U) U.zoomBy(0.80) }
+  const dkOut = $('dkZoomOut')
+  if (dkOut) dkOut.onclick = () => { if (U) U.zoomBy(1.25) }
+
+  /* ── 星图：抽屉关闭 ── */
+  const dc = $('drawerClose')
+  if (dc) dc.onclick = () => { hideDrawer(); selectedCluster = null; renderClusterFilter() }
+
+  /* ── 弹窗 ── */
+  const mc = $('modalClose')
+  if (mc) mc.onclick = closeModal
+  const mCancel = $('modalCancel')
+  if (mCancel) mCancel.onclick = closeModal
+  const mSave = $('modalSave')
+  if (mSave) mSave.onclick = saveModal
+  const mDep = $('modalDep')
+  if (mDep) mDep.onclick = deprioritizeModal
+  const mDel = $('modalDelete')
+  if (mDel) mDel.onclick = () => { if (modalId) deleteMemory(modalId) }
+
+  $('memModal').addEventListener('click', (ev) => {
+    if (ev.target === $('memModal')) closeModal()
+  })
+
+  /* ── 记忆页筛选 ── */
+  const ms = $('memSearch')
+  if (ms) {
+    let t = null
+    ms.addEventListener('input', () => {
+      clearTimeout(t)
+      t = setTimeout(() => { memShown = 200; renderMemRows() }, 240)
+    })
+  }
+  const mk = $('memKind')
+  if (mk) mk.onchange = () => { memShown = 200; renderMemRows() }
+  const mso = $('memSort')
+  if (mso) mso.onchange = () => { memShown = 200; renderMemRows() }
+
+  const mq = $('memQuery')
+  if (mq) {
+    mq.addEventListener('keydown', (ev) => { if (ev.key === 'Enter') doMemQuery() })
+  }
+
+  /* ── 经验卡 ── */
+  const pa = $('procAdd')
+  if (pa) pa.onclick = async () => {
+    const line = ($('procInput').value || '').trim()
+    if (!line) { toast('先写点什么', 'err'); return }
+    try {
+      const r = await post('/dsh-mood-api/procedures', { action: 'addInbox', line })
+      if (r && r.ok) { toast('已写入', 'ok'); $('procInput').value = ''; loadProc() }
+      else toast((r && r.error) || '失败', 'err')
+    } catch (e) { toast(e.message, 'err') }
+  }
+  const pc = $('procClear')
+  if (pc) pc.onclick = async () => {
+    if (!confirm('清空收件箱？')) return
+    try {
+      const r = await post('/dsh-mood-api/procedures', { action: 'clearInbox' })
+      if (r && r.ok) { toast('已清空', 'ok'); loadProc() } else toast((r && r.error) || '失败', 'err')
+    } catch (e) { toast(e.message, 'err') }
+  }
+  const psc = $('procScaffold')
+  if (psc) psc.onclick = async () => {
+    try {
+      const r = await post('/dsh-mood-api/procedures', { action: 'scaffold' })
+      if (r && r.ok) { toast('模板已生成', 'ok'); loadProc() } else toast((r && r.error) || '失败', 'err')
+    } catch (e) { toast(e.message, 'err') }
+  }
+
+  /* ── 品味 ── */
+  const ta = $('tasteAdd')
+  if (ta) ta.onclick = async () => {
+    const text = ($('tasteText').value || '').trim()
+    if (!text) { toast('原则正文不能为空', 'err'); return }
+    try {
+      const r = await post('/dsh-mood-api/taste', {
+        action: 'addPrinciple', text,
+        why: ($('tasteWhy').value || '').trim(),
+        unless: ($('tasteUnless').value || '').trim(),
+      })
+      if (r && r.ok) {
+        toast('已加入', 'ok')
+        $('tasteText').value = ''; $('tasteWhy').value = ''; $('tasteUnless').value = ''
+        loadTaste()
+      } else toast((r && r.error) || '失败', 'err')
+    } catch (e) { toast(e.message, 'err') }
+  }
+
+  /* ── 睡眠：手动操作 ── */
+  function refreshSleepAll() {
+    loadSleepState()
+    loadSleepSchedule()
+    loadSleepHistory()
+    loadSleepSteps()
+  }
+
+  const sg = $('sleepGo')
+  if (sg) sg.onclick = async () => {
+    try {
+      const r = await post('/dsh-mind-api/sleep/enter', { manual: true })
+      if (r && r.ok) { toast('已让她去睡（2 小时内不自动唤醒）', 'ok'); refreshSleepAll() }
+      else toast((r && r.error) || '失败', 'err')
+    } catch (e) { toast(e.message, 'err') }
+  }
+
+  const sw = $('sleepWake')
+  if (sw) sw.onclick = async () => {
+    try {
+      const r = await post('/dsh-mind-api/sleep/wake', { manual: true })
+      if (r && r.ok) { toast('已叫醒（2 小时内不自动入睡）', 'ok'); refreshSleepAll() }
+      else toast((r && r.error) || '失败', 'err')
+    } catch (e) { toast(e.message, 'err') }
+  }
+
+  const sh = $('sleepHeal')
+  if (sh) sh.onclick = async () => {
+    try {
+      const r = await post('/dsh-mind-api/sleep/heal', {})
+      if (r && r.ok) {
+        toast('状态已修复：' + (SLEEP_TONE[r.sleep.state] || {}).label, 'ok')
+        refreshSleepAll()
+      } else toast((r && r.error) || '修复失败', 'err')
+    } catch (e) { toast(e.message, 'err') }
+  }
+
+  const sa = $('schedAdd')
+  if (sa) sa.onclick = async () => {
+    try {
+      const r = await api('/dsh-mind-api/sleep/schedule')
+      const cfg = (r && r.schedule) || {}
+      const wins = (cfg.windows || []).concat([{
+        name: '新时段', start: '15:00', end: '16:00', type: 'nap', enabled: true,
+      }])
+      const rr = await post('/dsh-mind-api/sleep/schedule', {
+        auto: cfg.auto !== false,
+        preferFixedTime: cfg.preferFixedTime === true,
+        windows: wins,
+      })
+      if (rr && rr.ok) { toast('已添加时段', 'ok'); refreshSleepAll() }
+      else toast((rr && rr.error) || '失败', 'err')
+    } catch (e) { toast(e.message, 'err') }
+  }
+
+  /* 疲惫值快捷键（20 / 50 / 80）*/
+  document.querySelectorAll('[data-fatigue]').forEach((b) => {
+    b.onclick = async () => {
+      const v = Number(b.dataset.fatigue)
+      try {
+        const r = await post('/dsh-mind-api/sleep/fatigue', { value: v })
+        if (r && r.ok) { toast('疲惫值设为 ' + Math.round(r.fatigue), 'ok'); refreshSleepAll(); loadStats() }
+        else toast((r && r.error) || '失败', 'err')
+      } catch (e) { toast(e.message, 'err') }
+    }
+  })
+
+  const shr = $('sleepHistRefresh')
+  if (shr) shr.onclick = () => { loadSleepHistory(); loadSleepState() }
+
+  /* 自动判断 / 固定优先 开关 */
+  const autoCb = $('schedAuto')
+  if (autoCb) autoCb.onchange = async () => {
+    try {
+      await post('/dsh-mind-api/sleep/schedule', { auto: autoCb.checked })
+      refreshSleepAll()
+    } catch (e) { toast(e.message, 'err') }
+  }
+  const fixedCb = $('schedFixed')
+  if (fixedCb) fixedCb.onchange = async () => {
+    try {
+      await post('/dsh-mind-api/sleep/schedule', { preferFixedTime: fixedCb.checked })
+      refreshSleepAll()
+    } catch (e) { toast(e.message, 'err') }
+  }
+
+  /* ── 设置页按钮 ── */
+  const setSave = $('settingsSave')
+  if (setSave) setSave.onclick = () => saveSettings()
+  const setReset = $('settingsReset')
+  if (setReset) setReset.onclick = () => resetAllSettings()
+
+  /* ── 消费 / 系统刷新 ── */
+  const tr = $('tokenRefresh')
+  if (tr) tr.onclick = loadTokenView
+  const sr = $('sysRefresh')
+  if (sr) sr.onclick = loadSysConn
+
+  /* ── 移动端：面板折叠 ── */
+  const ph = $('skyPanelHead')
+  const panel = $('skyPanel')
+  if (ph && panel) {
+    ph.onclick = () => {
+      if (window.innerWidth <= 768) panel.classList.toggle('expanded')
+    }
+  }
+
+  /* ── 键盘：Esc 关闭 ── */
+  document.addEventListener('keydown', (ev) => {
+    if (ev.key === 'Escape') {
+      if ($('memModal').classList.contains('open')) closeModal()
+      else if ($('skyDrawer').classList.contains('open')) hideDrawer()
+    }
+  })
+
+  /* ── 提示语：首次交互后淡出 ── */
+  const canvas = $('sky-canvas')
+  if (canvas) {
+    canvas.addEventListener('pointerdown', () => {
+      const hint = $('skyHint')
+      if (hint) hint.classList.add('hide')
+    }, { once: true })
+  }
+}
+
+/* ═══════════════════════════════════════════════════════════════════
+   启动
+   ═══════════════════════════════════════════════════════════════════ */
+
+async function boot() {
+  buildNav()
+  bindEvents()
+  await loadStats()
+  await initSky()
+  startLabelLoop()
+
+  // 周期刷新统计与最近
+  setInterval(() => { try { loadStats() } catch (e) {} }, 30000)
+  setInterval(() => { if (currentView === 'sky') try { renderRecent() } catch (e) {} }, 60000)
+
+  // 窗口尺寸变化：星图重算 + 标签重排
+  window.addEventListener('resize', () => {
+    if (U) { U.resize(); updateLabels() }
+  })
+}
+
+if (document.readyState === 'loading') {
+  document.addEventListener('DOMContentLoaded', boot)
+} else {
+  boot()
+}

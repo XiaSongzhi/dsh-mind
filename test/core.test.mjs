@@ -217,3 +217,175 @@ test('睡眠状态机：strict 锁默认开启，普通调用不能强制唤醒'
   assert.equal(sm.canForceWake(false), false, '非管理员不得强制唤醒')
   assert.equal(sm.canForceWake(true), true, '管理授权可以')
 })
+
+// ── 回归：整理器必须能真正走完 13 步（线上曾卡死 5 小时的死锁）──
+//
+// 根因回顾：consolidate.saveProgress() 只调 sleep.setCheckpoint()，而 setCheckpoint
+// 当时只写 st.checkpoint、不写 st.task.step。loadProgress() 读的是 task.step，
+// 于是永远停在 0 —— 每次 tick 重复执行第 1 步，13 步永不完成，state 永远 sleeping。
+// 这个测试专门盯死"tick 能推进游标"，防止同类死锁再被 32/32 全绿掩盖。
+
+test('整理器：连续 tick 能走完 13 步，且不改变睡眠状态（防死锁回归）', async () => {
+  // ⚠️ 语义变更（2026-10-31）：
+  //    原用例断言"走完 13 步应迁到 recovering"，但那正是被修复的 bug
+  //    —— 整理完成会强行结束睡眠（只睡 7 分钟就被拉去将醒）。
+  //    正确语义：整理完成只标记 done，睡眠状态由 shouldWake() 决定。
+  const { createConsolidator } = await import('../lib/consolidate.js')
+  const { db, store } = freshStore()
+  const sm = createSleepManager({ stateFile: path.join(tmpDir(), 'state.json') })
+  sm.enterPreparing({ reason: 'test' })
+  sm.enterSleeping()
+
+  // sessionCtl 缺席：LLM 步会返回 ok=false，但失败 3 次后按设计"跳过继续"
+  const consolidator = createConsolidator({ db, store, sleep: sm, getSessionCtl: () => null })
+
+  let ticks = 0
+  let last = null
+  let doneAt = 0
+  while (ticks < 200) {
+    last = await consolidator.tick(null)
+    ticks += 1
+    // 游标必须真的在推进
+    if (ticks > 1 && last && last.step) {
+      assert.ok(last.step >= 1, `第 ${ticks} 拍应已推进到某一步，实际 ${last.step}`)
+    }
+    if (last && last.done === true) { doneAt = ticks; break }
+  }
+
+  assert.ok(doneAt > 0, '13 步应该能在有限拍内走完（否则是死锁）')
+
+  const fin = sm.get()
+  assert.equal(fin.state, 'sleeping', `整理完成**不应**改变睡眠状态（实际 ${fin.state}）`)
+  assert.equal(fin.task.step, consolidator.STEPS.length, 'task.step 必须等于 13')
+  // 有 3 个 LLM 步（3/6/9）在无 sessionCtl 时会各重试 3 次后跳过，
+  // 所以拍数上限 = 13 步 + 3 个 LLM 步 × 2 次额外重试 = 19，再留一点余量。
+  assert.ok(doneAt <= consolidator.STEPS.length + 3 * 2 + 1, `步进不应重跑（用了 ${doneAt} 拍）`)
+  assert.ok(doneAt < 200, '不能无限循环——正是死锁的表现')
+
+  // 状态迁移由驱动侧决定，状态机本身也允许
+  sm.wake({ reason: '整理结束自然醒' })
+  assert.equal(sm.get().state, 'awake')
+})
+
+// ── 回归：LLM 步投递必须符合宿主 prompt(request, signal) 契约 ──
+//
+// 线上曾因这一处把整个 DSH 打成 fatal load failure：
+//   TypeError: Cannot read properties of undefined (reading 'throwIfAborted')
+// 根因是 prompt 的 signal 必传（源码第一行 signal.throwIfAborted()），
+// 且 content 必须是 [{type:'text',text}] 数组。这个测试用**真的会校验这两点**的
+// mock controller 把契约钉死：少传 signal 或传字符串都会让它当场抛错。
+test('整理器：LLM 步投递必须传 signal 与 content 数组（防崩宿主回归）', async () => {
+  const { createConsolidator } = await import('../lib/consolidate.js')
+  const { db, store } = freshStore()
+
+  const calls = []
+  const controller = {
+    // 真实 list() 的条目带 cwd；来源隔离要求它是陪伴会话
+    get sessionId() { return 'session-test-1' },
+    async list() {
+      return { items: [{ sessionId: 'session-test-1', cwd: '/tmp/test-workspace/agents', lastActiveAt: 9000 }] }
+    },
+    // 忠实模拟宿主的校验：signal 必传、content 必须含非空白文本
+    prompt(request, signal) {
+      if (!signal || typeof signal.throwIfAborted !== 'function') {
+        throw new TypeError("Cannot read properties of undefined (reading 'throwIfAborted')")
+      }
+      signal.throwIfAborted()
+      const hasText = Array.isArray(request.content)
+        && request.content.some((c) => c?.type === 'text' && String(c.text || '').trim())
+      if (!hasText) throw new Error('prompt content must include non-whitespace text')
+      if (!request.requestId) throw new Error('缺少 requestId')
+      if (!request.sessionId) throw new Error('缺少 sessionId')
+      calls.push(request)
+      return Promise.resolve({ ok: true })
+    },
+  }
+
+  const sm = createSleepManager({ stateFile: path.join(tmpDir(), 'state2.json') })
+  sm.enterPreparing({ reason: 'test' })
+  sm.enterSleeping()
+  const consolidator = createConsolidator({ db, store, sleep: sm, getSessionCtl: () => controller })
+
+  // 跑到第 3 步（第一个 LLM 步）为止
+  let guard = 0
+  let r = null
+  while (guard++ < 10) {
+    r = await consolidator.tick(controller)
+    if (r && r.step === 3) break
+  }
+  assert.equal(r.step, 3, '应推进到第 3 步（extract-episode）')
+  assert.equal(r.ok, true, '投递应成功：' + (r.note || ''))
+
+  assert.equal(calls.length, 1, '应恰好投递一次')
+  const req = calls[0]
+  assert.ok(Array.isArray(req.content), 'content 必须是数组（字符串会被宿主拒）')
+  assert.equal(req.content[0].type, 'text')
+  assert.ok(String(req.content[0].text).includes('mind_memory'), '整理指令应引导模型用 mind_memory 落库')
+  assert.equal(req.mode, 'queue')
+  assert.equal(req.sessionId, 'session-test-1', '必须投给具体会话')
+})
+
+// ── 回归：没有可用会话时不得投递（宁可跳过也不能投错会话） ──
+test('整理器：无可用 sessionId 时 LLM 步安静跳过，绝不调 prompt', async () => {
+  const { createConsolidator } = await import('../lib/consolidate.js')
+  const { db, store } = freshStore()
+  let promptCalls = 0
+  const controller = {
+    prompt() { promptCalls += 1; throw new Error('不应被调用') },
+  }
+  const sm = createSleepManager({ stateFile: path.join(tmpDir(), 'state3.json') })
+  sm.enterPreparing({ reason: 'test' })
+  sm.enterSleeping()
+  const consolidator = createConsolidator({ db, store, sleep: sm, getSessionCtl: () => controller })
+
+  let guard = 0, r = null
+  while (guard++ < 10) {
+    r = await consolidator.tick(controller)
+    if (r && r.step === 3) break
+  }
+  assert.equal(r.step, 3)
+  assert.equal(r.ok, false, '没有会话应判为未完成（走重试）')
+  assert.equal(promptCalls, 0, '拿不到 sessionId 时绝不能调 prompt')
+})
+
+// ── 回归：sessionId 必须能从 controller.list() 的**真实异步形状**里解出来 ──
+//
+// 宿主 list(_request, signal) 是 async，返回 { items: [{ sessionId, ... }] }，
+// controller 自身没有 sessionId 字段（session-controller/lib/index.js:3054）。
+// 早期代码把 list() 当同步数组取，拿到的是 Promise → sessionId 永远 null，
+// 于是 3 个 LLM 步全部"无会话跳过"，睡眠整理永远做不成记忆沉淀。
+test('整理器：能从 controller.list() 的异步 {items:[{sessionId}]} 解析出目标会话', async () => {
+  const { createConsolidator } = await import('../lib/consolidate.js')
+  const { db, store } = freshStore()
+  const targets = []
+  // 忠实模拟真实形状：无 sessionId 字段、list 是 async、返回 { items }
+  const controller = {
+    async list() {
+      // 真实 cwd：陪伴会话才能被投递（来源隔离要求）
+      const CWD = '/tmp/test-workspace/agents'
+      return { items: [
+        { sessionId: 'session-old', cwd: CWD, lastActiveAt: 1000 },
+        { sessionId: 'session-newest', cwd: CWD, lastActiveAt: 9000 },
+      ] }
+    },
+    prompt(request, signal) {
+      if (!signal || typeof signal.throwIfAborted !== 'function') throw new TypeError('signal 缺失')
+      signal.throwIfAborted()
+      targets.push(request.sessionId)
+      return Promise.resolve()
+    },
+  }
+  const sm = createSleepManager({ stateFile: path.join(tmpDir(), 'state4.json') })
+  sm.enterPreparing({ reason: 'test' })
+  sm.enterSleeping()
+  const consolidator = createConsolidator({ db, store, sleep: sm, getSessionCtl: () => controller })
+
+  let guard = 0, r = null
+  while (guard++ < 10) {
+    r = await consolidator.tick(controller)
+    if (r && r.step === 3) break
+  }
+  assert.equal(r.ok, true, '有会话时投递应成功：' + (r.note || ''))
+  assert.equal(targets.length, 1)
+  assert.equal(targets[0], 'session-newest', '应挑最近活跃的那个会话（lastActiveAt 最大）')
+})

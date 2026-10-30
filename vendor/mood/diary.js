@@ -32,7 +32,7 @@ export function diaryFile() { return dataFile('dsh-mood-diary.json') }
 /**
  * 为什么加密、以及**它到底防什么** —— 这段比代码本身重要，所以写在这。
  *
- * **起因**：主人说「UI 里锁着、文件却是明文，那不算锁」。
+ * **起因**：用户说「UI 里锁着、文件却是明文，那不算锁」。
  * 他说得对 —— 那个文件 121 KB 明文躺着，记事本一开就能读；
  * 界面上那个合上的书本图标，保护的只是界面，不是日记。
  *
@@ -148,7 +148,7 @@ export function blankDiary() {
     daily: {},
     /**
      * 日记的可见性 —— **默认不给看**。
-     * 日记是"我"的东西，主人要看必须先问、我同意才行。
+     * 日记是"我"的东西，用户要看必须先问、我同意才行。
      * 设置页据此决定显示日记列表还是"锁着"的提示，图标也从合上的书本变成张开的。
      */
     access: { allowed: false, at: 0, note: '' },
@@ -259,7 +259,7 @@ export function dayBucket(d, key) {
       hours: {},           // { '22': 7 }  每小时多少条
       words: {},           // { 压缩包: 4 }  当天反复出现的词
       longest: null,       // { len, text }  最长的一条
-      quotes: [],          // [{ at, text }] 当天几句**主人真说过**的话（最多 4 条）
+      quotes: [],          // [{ at, text }] 当天几句**用户真说过**的话（最多 4 条）
       stuckFrom: 0,        // 这一串报错是从什么时候开始的
       stuckMs: 0,          // 卡得最久的一次，累计毫秒
     }
@@ -359,14 +359,14 @@ export function noteSwitch(d, from, to, now = Date.now()) {
  * 这一条是不是**被注入的框**，而不是人说的话。
  *
  * DSH 和插件自己都会往对话里塞东西（`<system-reminder>` 提醒、`<goal_round>` 续跑包装），
- * 它们走的是同一个 `user/message` 事件 —— 不挡就会被当成"主人说过的话"。
+ * 它们走的是同一个 `user/message` 事件 —— 不挡就会被当成"用户说过的话"。
  *
  * ⚠️ 实测后果：某天的 `longest` 抓到了一段 **20375 字符**的系统消息
  *    （开头是 "This is an automatically generated check"），
  *    高频词也变成了 `use` / `new` / `user` 这些英文 ——
- *    日记要是去引用它，就会把一段系统提示当成主人说的话写进去。
+ *    日记要是去引用它，就会把一段系统提示当成用户说的话写进去。
  *
- * 只认**开头**，不做全文匹配：主人真的在正文里贴一段 XML 是另一回事。
+ * 只认**开头**，不做全文匹配：用户真的在正文里贴一段 XML 是另一回事。
  * （index.js 里有一份同样的判断给归档用；这里自带一份，
  *   是为了让 diary.js 单独搬走时也不会漏掉这条。）
  */
@@ -400,7 +400,7 @@ export function noteActivity(d, kind, now = Date.now(), text = '') {
     const hour = String(new Date(now).getHours())
     b.hours[hour] = (b.hours[hour] || 0) + 1
     const raw = String(text || '').trim()
-    // ⚠️ **注入的框不算主人说的话** —— 不计词频、不参与"最长那条"、不当引语。
+    // ⚠️ **注入的框不算用户说的话** —— 不计词频、不参与"最长那条"、不当引语。
     if (raw && !isInjectedText(raw)) {
       for (const w of words(raw)) b.words[w] = (b.words[w] || 0) + 1
       if (!b.longest || raw.length > b.longest.len) b.longest = { len: raw.length, text: raw.slice(0, 120) }
@@ -408,7 +408,7 @@ export function noteActivity(d, kind, now = Date.now(), text = '') {
       //    光靠"高频词 + 最长那条"有个大漏洞：两者都空的时候（那两天就是这样），
       //    成文时第二段整段写不出来，日记只剩"今天没多长时间 / 出了几次岔子"这种概括 ——
       //    全是空话，一件具体的事都没有。而问题出在**素材**，不在文笔。
-      //    所以顺手留几句主人真说过的话，成文时可以拿来当"到底在干嘛"。
+      //    所以顺手留几句用户真说过的话，成文时可以拿来当"到底在干嘛"。
       const t = raw.replace(/\s+/g, ' ').slice(0, 60)
       if (t.length >= 12 && !b.quotes.some((q) => q.text === t)) {
         b.quotes.push({ at: now, text: t })

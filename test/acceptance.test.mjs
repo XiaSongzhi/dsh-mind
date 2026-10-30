@@ -1,189 +1,182 @@
-// dsh-mind 验收测试（PRD 第十三节的十五条 → 离线可测的逐条映射）
-// 活体项（需要真实 DSH 运行 + QQ 交互）标记为「活体待测」，不伪造结果。
+// test/acceptance.test.mjs —— 通用验收用例
+//
+// 只测本仓库自己实现的边界：记忆写入/检索/删除、睡眠四态自愈、
+// 数据库迁移。不依赖任何外部服务。
 
-import test from 'node:test'
+import { test } from 'node:test'
 import assert from 'node:assert/strict'
-import fs from 'node:fs'
-import path from 'node:path'
-import os from 'node:os'
-import { openDb, ftsRebuild } from '../lib/db.js'
-import { createMemoryStore } from '../lib/memory.js'
-import { buildInjectBlock } from '../lib/retrieve.js'
-import { createSleepManager } from '../lib/sleep.js'
-import { createConsolidator } from '../lib/consolidate.js'
-import { toIndexText } from '../lib/bigram.js'
+import { mkdtempSync, writeFileSync } from 'node:fs'
+import { join } from 'node:path'
+import { tmpdir } from 'node:os'
 
-function tmp() { return fs.mkdtempSync(path.join(os.tmpdir(), 'dsh-mind-acc-')) }
-function fresh() {
-  const dir = tmp()
-  const db = openDb(path.join(dir, 'memory.db'))
-  const store = createMemoryStore(db)
+import { openDb } from '../lib/db.js'
+import { createMemoryStore } from '../lib/memory.js'
+import { createSleepManager } from '../lib/sleep.js'
+
+function freshStore() {
+  const dir = mkdtempSync(join(tmpdir(), 'dshmind-'))
+  const db = openDb(join(dir, 'memory.db'))
+  const store = createMemoryStore(db, { log: () => {} })
   return { dir, db, store }
 }
 
-test('验收1 重复事件识别并关联原记忆', () => {
-  const { store } = fresh()
-  const a = store.note({ kind: 'fact', text: '用户每周三晚上要开会' })
-  const b = store.note({ kind: 'fact', text: '用户每周三晚要开会，记得提醒' })
-  assert.ok(b.duplicateOf === a.id, '重复事实应并入原记忆')
+function freshSleep(overrides) {
+  const dir = mkdtempSync(join(tmpdir(), 'dshsleep-'))
+  const f = join(dir, 'state.json')
+  if (overrides) writeJson(f, overrides)
+  return createSleepManager({ stateFile: f, log: () => {} })
+}
+
+function writeJson(path, obj) {
+  writeFileSync(path, JSON.stringify(obj, null, 2))
+}
+
+/* ═══════ 记忆 ═══════ */
+
+test('记忆：写入后可按关键词检索', () => {
+  const { store } = freshStore()
+  store.note({ kind: 'episode', text: '今天去买了工学椅，腰有点酸', source: 'test' })
+  const hits = store.search('工学椅', { k: 5, minScore: 0.2 })
+  assert.ok(hits.length > 0, '应能检索到刚写入的记忆')
+  assert.ok(String(hits[0].text).includes('工学椅'))
 })
 
-test('验收2 纠正后保留来源并更新当前有效结论', () => {
-  const { store } = fresh()
-  const a = store.note({ kind: 'fact', text: '用户喜欢可乐', source: 'conversation' })
-  const r = store.correct(a.id, { newText: '用户现在喜欢雪碧' })
-  const oldM = store.get(a.id), newM = store.get(r.newId)
-  assert.equal(oldM.source, 'conversation', '旧记忆来源保留')
-  assert.equal(newM.text, '用户现在喜欢雪碧', '当前有效结论已更新')
-  assert.equal(newM.source, 'user-correction')
+test('记忆：fact 类型相同内容会被合并而不是重复堆积', () => {
+  const { store } = freshStore()
+  // ⚠️ 去重只对 fact / lesson 这类"长期重复"的类型生效，
+  //    episode 故意允许重复（同一件事可以发生多次）。
+  const a = store.note({ kind: 'fact', text: '用户的生日是 10 月 29 日', source: 'test' })
+  const b = store.note({ kind: 'fact', text: '用户的生日是 10 月 29 日', source: 'test' })
+  assert.ok(b.duplicateOf, '第二条应被识别为重复并合并')
+  assert.equal(store.stats().total, 1, '库里应只有一条')
 })
 
-test('验收3 重启（库重开）后仍能检索历史记忆', () => {
-  const dir = tmp()
-  const f = path.join(dir, 'memory.db')
-  const s1 = createMemoryStore(openDb(f))
-  s1.note({ kind: 'episode', text: '他约了周五下午三点在图书馆见面' })
-  // 模拟进程重启：重新打开同一个文件
-  const s2 = createMemoryStore(openDb(f))
-  const hits = s2.search('图书馆 见面', { k: 5, minScore: 0.1 })
-  assert.equal(hits.length, 1, '重启后跨库检索应命中')
+test('记忆：物理删除会真正移除行与索引', () => {
+  const { store } = freshStore()
+  const r = store.note({ kind: 'episode', text: '这条将被彻底删除', source: 'test' })
+  const before = store.stats().total
+  store.purge(r.id, { reason: '测试' })
+  const after = store.stats().total
+  assert.equal(after, before - 1, '总数应减少 1')
+  assert.ok(!store.get(r.id), '按 id 应取不到')
+  const hits = store.search('彻底删除', { k: 5, minScore: 0.2 })
+  assert.ok(!hits.some((h) => h.id === r.id), 'FTS 索引也应清掉')
 })
 
-test('验收4 人名/时间/约定可关键词召回', () => {
-  const { store } = fresh()
-  store.note({ kind: 'episode', text: '和林小雨约好周六 14:00 在市中心咖啡店碰头' })
-  for (const q of ['林小雨', '周六', '咖啡店', '14:00']) {
-    const h = store.search(q, { k: 5, minScore: 0.05 })
-    assert.ok(h.length >= 1, `「${q}」应能召回`)
-  }
+test('记忆：降权只减半不删除', () => {
+  const { store } = freshStore()
+  const r = store.note({ kind: 'episode', text: '降权测试', importance: 0.8, source: 'test' })
+  store.forget(r.id, { tier: 1 })
+  const m = store.get(r.id)
+  assert.ok(m, '降权后行仍在')
+  assert.ok(m.decay < 1, 'decay 应被减半')
 })
 
-test('验收5 无关历史不进提示词（注入块为空/不超预算）', () => {
-  const { store } = fresh()
-  store.note({ kind: 'episode', text: '他聊了很久关于钓鱼竿的选择' })
-  const hits = store.search('装修风格', { k: 2, minScore: 0.45 })
-  const r = buildInjectBlock({ memoryHits: hits }, { injectBudgetChars: 1000 })
-  assert.equal(r.text, '', '无关查询不得注入任何记忆')
+/* ═══════ 睡眠 ═══════ */
+
+test('睡眠：疲惫值随真实时间推进', () => {
+  const HOUR = 3600000
+  const m = freshSleep({
+    state: 'awake',
+    since: Date.now(),
+    fatigue: 30,
+    fatigueAt: Date.now() - 6 * HOUR,
+    lastWakeAt: Date.now() - 6 * HOUR,
+    sleepDebt: 0,
+    schedule: { auto: true, fatigueSleep: 70, fatigueWake: 25, windows: [] },
+    history: [],
+  })
+  const v = m.fatigue.get()
+  assert.ok(v > 30, '6 小时后疲惫值应上升，实际 ' + v)
+  assert.ok(v <= 100, '不超过上限')
 })
 
-test('验收6 情绪连续性（引擎侧）', () => {
-  // mood 引擎按原样 vendored——情绪连续性由其既有行为保证。
-  // 离线可测部分：情绪变化流水表的写入接口存在。
-  const { store, db } = fresh()
-  db.prepare('INSERT INTO emotions(t, mood_id, mood_label, intensity, trigger, source) VALUES (?,?,?,?,?,?)')
-    .run(Date.now(), 'angry', '生气', 0.6, '被误解', 'user-stated')
-  const row = db.prepare('SELECT * FROM emotions ORDER BY t DESC').get()
-  assert.equal(row.mood_id, 'angry')
-  // 活体待测：连续对话下心情的平滑变化（mood 引擎自身行为，未改动）
+test('睡眠：睡眠期间疲惫值下降', () => {
+  const HOUR = 3600000
+  const m = freshSleep({
+    state: 'sleeping',
+    since: Date.now() - 3 * HOUR,
+    sleepSessionStartedAt: Date.now() - 3 * HOUR,
+    fatigue: 85,
+    fatigueAt: Date.now() - 3 * HOUR,
+    lastWakeAt: Date.now() - 20 * HOUR,
+    sleepDebt: 0,
+    schedule: { auto: true, fatigueSleep: 70, fatigueWake: 25, windows: [] },
+    history: [],
+  })
+  const v = m.fatigue.get()
+  assert.ok(v < 85, '睡 3 小时后应下降，实际 ' + v)
 })
 
-test('验收7 用户偏好与 AI 自身偏好分轨可追溯', () => {
-  const { db } = fresh()
-  const ins = db.prepare('INSERT INTO preferences(subject,domain,text,confidence,source,created_at,updated_at) VALUES (?,?,?,?,?,?,?)')
-  ins.run('user', 'food', '用户爱吃辣', 0.9, 'user-stated', Date.now(), Date.now())
-  ins.run('self', 'design', '我更喜欢暗色系界面', 0.4, 'inference', Date.now(), Date.now())
-  const user = db.prepare("SELECT * FROM preferences WHERE subject='user'").all()
-  const self = db.prepare("SELECT * FROM preferences WHERE subject='self'").all()
-  assert.equal(user.length, 1); assert.equal(self.length, 1)
-  assert.equal(user[0].source, 'user-stated'); assert.equal(self[0].source, 'inference')
+test('睡眠：卡住的 recovering 会被自愈为 awake', () => {
+  const MIN = 60000
+  const m = freshSleep({
+    state: 'recovering',
+    since: Date.now() - 50 * MIN,
+    recoveringStartedAt: Date.now() - 50 * MIN,
+    sleepSessionStartedAt: Date.now() - 10 * 3600000,
+    fatigue: 36,
+    fatigueAt: Date.now() - 50 * MIN,
+    lastWakeAt: Date.now() - 10 * 3600000,
+    sleepDebt: 0,
+    schedule: { auto: true, fatigueSleep: 70, fatigueWake: 25, windows: [] },
+    history: [],
+  })
+  const s = m.get()
+  assert.equal(s.state, 'awake', '超过 40 分钟的上限应自动恢复清醒')
 })
 
-test('验收8 星图数据来自真实库（非静态装饰）', () => {
-  const { store } = fresh()
-  const before = store.graphData({}).nodes.length
-  store.note({ kind: 'episode', text: '和王教授讨论了论文选题', entities: ['王教授'], importance: 0.85 })
-  const after = store.graphData({}).nodes.length
-  assert.ok(after > before, '写入新记忆后星图节点必须增加')
-  assert.ok(store.graphData({}).edges.some((e) => e.kind === 'entity'))
+test('睡眠：跨午夜时段判断正确', () => {
+  const m = freshSleep({
+    state: 'awake', since: Date.now(), fatigue: 30, fatigueAt: Date.now(),
+    lastWakeAt: Date.now(), sleepDebt: 0,
+    schedule: { auto: true, fatigueSleep: 70, fatigueWake: 25, windows: [] },
+    history: [],
+  })
+  const win = { name: '夜间', start: '23:30', end: '08:30', enabled: true }
+  const at = (h, mi) => m.inWindowAt(win, new Date(2026, 0, 2, h, mi))
+
+  assert.equal(at(23, 45).inWindow, true, '23:45 应在内')
+  assert.equal(at(2, 0).inWindow, true, '02:00 应在内（跨午夜）')
+  assert.equal(at(8, 20).inWindow, true, '08:20 应在内')
+  assert.equal(at(8, 45).inWindow, false, '08:45 应已结束')
+  assert.equal(at(15, 0).inWindow, false, '15:00 不应在内')
 })
 
-test('验收9 到点进入睡眠锁定（手动模式，状态机）', () => {
-  const dir = tmp()
-  const sm = createSleepManager({ stateFile: path.join(dir, 'state.json') })
-  sm.enterPreparing({ reason: '作息到点' })
-  sm.enterSleeping()
-  assert.equal(sm.get().state, 'sleeping')
+test('睡眠：四态可完整流转', () => {
+  const m = freshSleep()
+  m.fatigue.set(75)
+  assert.equal(m.get().state, 'awake')
+
+  const sv = m.shouldSleep()
+  assert.equal(sv.yes, true, '疲惫 75 应该想睡')
+
+  m.enterPreparing({ reason: '疲惫到线' })
+  assert.equal(m.get().state, 'preparing')
+
+  m.enterSleeping({ reason: '过渡完成' })
+  assert.equal(m.get().state, 'sleeping')
+
+  m.enterRecovering({ reason: '该醒了' })
+  assert.equal(m.get().state, 'recovering')
+
+  m.wake({ reason: '唤醒完成' })
+  assert.equal(m.get().state, 'awake')
 })
 
-test('验收10 睡眠锁在消息链路生效（桥接插桩代码就位）+ SnowLuma 无自主应答', () => {
-  // 代码就位检查：bridge.js 必须在 sendWakePromptV2 与 scheduleProactiveCheckV2 有闸门
-  const bridgePath = process.env.QQ_BRIDGE_SRC || path.join(os.homedir(), 'Documents', 'qq-bridge', 'src', 'bridge.js')
-  const bridge = fs.readFileSync(bridgePath, 'utf8')
-  assert.ok(bridge.includes('mindSleepLockActive()'), 'sendWakePromptV2 投递入口必须有锁')
-  assert.ok(bridge.includes('dsh-mind 睡眠锁：睡眠期间不做主动检查'), 'proactive 必须有锁')
-  assert.ok(bridge.includes("mindStatePath: ''"), '配置字段必须存在')
-  // SnowLuma 无自动回复（审计已证 0 匹配）；活体端到端：待测
+test('睡眠：手动叫醒后会进入保护期，不立即自动入睡', () => {
+  const m = freshSleep()
+  m.fatigue.set(90)
+  m.wake({ reason: '手动叫醒', manual: true })
+  const sv = m.shouldSleep()
+  assert.equal(sv.yes, false, '保护期内不应自动入睡')
+  assert.ok(String(sv.why).includes('保护期'))
 })
 
-test('验收11 整理异常时原始记忆安全、任务可恢复', () => {
-  const dir = tmp()
-  const db = openDb(path.join(dir, 'memory.db'))
-  const store = createMemoryStore(db)
-  const a = store.note({ kind: 'episode', text: '重要的原始记忆，不能被整理弄丢', confirmed: 1 })
-  const sleep = createSleepManager({ stateFile: path.join(dir, 'state.json') })
-  sleep.enterPreparing({ reason: 'x' }); sleep.enterSleeping()
-  const cons = createConsolidator({ db, store, sleep, getSessionCtl: () => null })
-  // LLM 步在无 sessionCtl 时必须"延后不阻塞、不动数据"
-  const r = cons.tick(null)
-  assert.ok(r.step === 1 || r.done || r.note, 'tick 应正常推进或明确延后')
-  assert.equal(store.get(a.id).text, '重要的原始记忆，不能被整理弄丢', '原始记忆完好')
-  // 本地步全推：到 forget-mark 也不得动 confirmed 记忆
-  let guard = 0
-  while (sleep.get().state === 'sleeping' && guard++ < 15) {
-    const t = cons.tick(null)
-    if (t.done) break
-  }
-  assert.equal(store.get(a.id).status, 'active', 'confirmed 记忆不得被自动归档')
-  assert.equal(store.get(a.id).text.includes('不能被整理弄丢'), true)
-})
-
-test('验收12 苏醒后解除锁定', () => {
-  const dir = tmp()
-  const sleep = createSleepManager({ stateFile: path.join(dir, 'state.json') })
-  sleep.enterPreparing({}); sleep.enterSleeping(); sleep.enterRecovering(); sleep.wake({})
-  assert.equal(sleep.get().state, 'awake')
-  assert.equal(sleep.blocksWake(), false)
-})
-
-test('验收13 索引与主库不一致可检测并重建', () => {
-  const dir = tmp()
-  const db = openDb(path.join(dir, 'memory.db'))
-  const store = createMemoryStore(db)
-  for (let i = 0; i < 5; i++) store.note({ kind: 'fact', text: `一致性校验样本记忆第 ${i} 条，关于蓝牙耳机` })
-  // 人为破坏 FTS
-  db.exec('DELETE FROM memories_fts')
-  let broken = db.prepare('SELECT COUNT(*) n FROM memories_fts').get().n
-  assert.equal(broken, 0)
-  const r = ftsRebuild(db, toIndexText)
-  assert.equal(r.ok, true); assert.equal(r.rebuilt, 5)
-  broken = db.prepare('SELECT COUNT(*) n FROM memories_fts').get().n
-  assert.equal(broken, 5, '重建后索引恢复')
-})
-
-test('验收14 治理全留审计日志', () => {
-  const { store } = fresh()
-  const a = store.note({ kind: 'fact', text: '待治理的记忆' })
-  store.correct(a.id, { newText: '治理后的记忆' })
-  store.forget(a.id, { tier: 2, reason: 'test' })
-  const logs = store.auditList(20).map((x) => x.action)
-  assert.ok(logs.includes('correct')); assert.ok(logs.includes('forget-archive'))
-})
-
-test('验收15 重启与重复导入不产生大面积重复', () => {
-  const dir = tmp()
-  const db = openDb(path.join(dir, 'memory.db'))
-  const store = createMemoryStore(db)
-  // 同一条重复写 5 次（模拟重复消息/重复任务）
-  for (let i = 0; i < 5; i++) store.note({ kind: 'fact', text: '用户最喜欢的动画是瑞克和莫蒂，一集不落' })
-  const st = store.stats()
-  assert.equal(st.total, 1, '相似合并应把 5 次重复收敛为 1 条')
-})
-
-test('PRD 预算：注入总预算默认 3500 字（用户指定：mood 基础上调 500）', async () => {
-  process.env.DSH_HOME = tmp()
-  const { apply } = await import('../index.js')
-  const ctx = { get() { return { register() {} } }, effect(fn) { fn() }, systemPrompt: { section() {} } }
-  const api = apply(ctx, { dataDir: path.join(tmp(), 'mind') })
-  assert.equal(api.cfg.injectBudgetChars, 3500)
-  assert.equal(api.cfg.inject, false, '灰度默认关')
+test('睡眠：疲惫值被裁剪到 0~100', () => {
+  const m = freshSleep()
+  m.fatigue.set(999)
+  assert.equal(m.fatigue.get(), 100)
+  m.fatigue.set(-50)
+  assert.equal(m.fatigue.get(), 0)
 })

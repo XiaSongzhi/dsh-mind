@@ -59,7 +59,7 @@ export function newsFile() { return dataFile('dsh-mood-news.json') }
 export const NEWS_FRESH_MS = 24 * 3600 * 1000
 /** 进提示词最多带几条 */
 // ⚠️ 从 12 提到 16 —— 见下面 renderForPrompt 里"按来源轮着取"那段：
-//    原来 12 条全被一个源吃掉，主人反馈「感觉抓取的时事有点少」。
+//    原来 12 条全被一个源吃掉，用户反馈「感觉抓取的时事有点少」。
 //    改成公平取之后，条目数才是真正的"每个源能露几条"。
 export const NEWS_PROMPT_MAX = 16
 /** 单条标题最长多少字 */
@@ -165,7 +165,7 @@ export async function fetchDetail(item) {
     const t = await fetchVideoTranscript(url)
     // ⚠️ **评论和字幕是两件事，别绑在一起。**
     //    原来这里是"字幕拿到了就直接 return，comments 给空数组" ——
-    //    于是抓到字幕的视频**一条评论都不看**。而主人明确说过「评论区也要看」：
+    //    于是抓到字幕的视频**一条评论都不看**。而用户明确说过「评论区也要看」：
     //    视频底下那些话往往是"别人怎么反应"的一手材料。
     const cmt = await bilibiliComments(url, 6)
     if (t.text) {
@@ -238,7 +238,7 @@ export async function enrichItems(items, max = DETAIL_MAX_ITEMS) {
  *      GET https://api.bilibili.com/x/v2/reply?type=1&oid=<aid>&pn=1&sort=2
  *    oid 是 **aid**（不是 BV 号）—— 先用 view 接口把 BV 换成 aid。
  *
- * 主人说过一句「评论区也要看」—— 视频底下那些话往往比视频本身更有信息量，
+ * 用户说过一句「评论区也要看」—— 视频底下那些话往往比视频本身更有信息量，
  * 而且是**别人的判断**（正好是品味库里 `by: other` 那种材料）。
  */
 // 上一次 bilibili 评论抓取为什么没拿到（空 = 没失败过）。
@@ -355,7 +355,7 @@ export function ytDlpCandidates() {
   ]
   // ⚠️ 也看一眼**真正的家目录**下的 .dsh/bin。
   //    DSH_HOME 被改过（测试、多配置、便携模式）时，`home` 指向别处，
-  //    但主人装的 yt-dlp 还是在默认那个位置 —— 只看 home 会误报"没装"。
+  //    但用户装的 yt-dlp 还是在默认那个位置 —— 只看 home 会误报"没装"。
   if (realHome !== home) {
     out.push(join(realHome, 'bin', 'yt-dlp.exe'), join(realHome, 'bin', 'yt-dlp'))
   }
@@ -436,7 +436,7 @@ export async function fetchVideoTranscript(url, maxChars = DETAIL_CHARS) {
   //
   // 现在的偏好：简体中文 → 笼统的 zh → **原语言** → 英文 → 繁体 → 其它。
   //    把「原语言」排在英文前面，是因为**翻译会丢说话人的原话**，
-  //    而读原文比读二手转述靠谱得多（主人说过一句很像的话：不能模仿）。
+  //    而读原文比读二手转述靠谱得多（用户说过一句很像的话：不能模仿）。
   const pickTrack = (bag) => {
     if (!bag || typeof bag !== 'object') return null
     const keys = Object.keys(bag)
@@ -588,7 +588,7 @@ export function framesBaseDir() {
  *    "画面里到底是什么"，才走这条。别把字幕删了换这个。
  *
  * ⚠️ 下载是**有限制**的 —— 视频文件比图片大两三个数量级，不设限会：
- *    · 拖很久（主人点一下按钮，卡三分钟）
+ *    · 拖很久（用户点一下按钮，卡三分钟）
  *    · 占满磁盘
  *    · 被站点限流
  *    所以：时长上限 15 分钟、清晰度压到 480p 以下、大小上限 80 MB。
@@ -635,7 +635,7 @@ export async function fetchVideoFrames(url, opts = {}) {
   // ⚠️ 原来这里只有 `sweepOldFrames(base, 2 小时)` —— 也就是**只删超过两小时的**。
   //    但工具输出里我写的是「下一批抽帧时这一批会自动删掉」——**那句话是假的**：
   //    下一批来的时候上一批还老老实实躺在磁盘上。
-  //    主人要的是"抽完、看完就删"，不是"攒两小时再删"。
+  //    用户要的是"抽完、看完就删"，不是"攒两小时再删"。
   //
   //    改成：把 base 底下**除这一批之外的全部删掉**（含上一次的临时视频目录）。
   //    代价：一轮里连着抽两个视频的话，第一个的图会被第二个冲掉 ——
@@ -882,7 +882,7 @@ export async function fetchVideoFrames(url, opts = {}) {
     return { ok: false, title, error: '抽帧出错：' + ((e && e.message) || e) }
   } finally {
     // ⚠️ **视频文件当场删掉** —— 它是抽帧的原料，抽完就没用了。
-    //    留着的话一次 80 MB，几次就把磁盘吃了。主人明确要求"读取完自动删除"。
+    //    留着的话一次 80 MB，几次就把磁盘吃了。用户明确要求"读取完自动删除"。
     try { if (videoPath && existsSync(videoPath)) rmSync(videoPath, { force: true }) } catch { /* 不管 */ }
     F.cleanFrames(tmp)
   }
@@ -1014,7 +1014,7 @@ export function parseHtmlList(html, baseUrl = '', limit = 10) {
  * ⚠️ 为什么要留着它：`space.bilibili.com` 这类页面会被**风控**挡
  *    （实测 `Request is rejected by server (352)`，连续试几次就中）。
  *    而函数返回空数组时，"这个频道没内容"和"我被挡了"长得一模一样 ——
- *    不把原因带出来，主人只会看到"加了源但抓不到东西"，然后猜。
+ *    不把原因带出来，用户只会看到"加了源但抓不到东西"，然后猜。
  */
 export let lastYtError = ''
 
@@ -1125,7 +1125,7 @@ export const PRESETS = [
 //   Creative Bloq / Smashing / Awwwards / 机器之心 / ACL Anthology / skillsmp   0 条
 //   Codrops                    403
 //
-// ⚠️ 加源的规矩（主人给的）：**加主站，让它自己去抓子页；别加某一篇文章。**
+// ⚠️ 加源的规矩（用户给的）：**加主站，让它自己去抓子页；别加某一篇文章。**
 //    实测这条对**设计类 / 资讯类**站成立 —— It's Nice That、量子位、bilibili
 //    都是只填主站就抓得到 8 条。
 //
@@ -1345,7 +1345,7 @@ export function renderForPrompt(n, max = NEWS_PROMPT_MAX) {
   lines.push('### 最近的时事（供你知道"外面在发生什么"）')
   // ── 这段的每一句都是安全相关的，别"优化"掉 ──
   //
-  // ⚠️ 但**别把"真伪"和"用途"混成一件事** —— 这是主人点出来的：
+  // ⚠️ 但**别把"真伪"和"用途"混成一件事** —— 这是用户点出来的：
   //    「注意分辨真信息和假信息，比如时事，别全判断假信息，
   //      还有一些假信息可以充实品味等等」
   //
@@ -1355,7 +1355,7 @@ export function renderForPrompt(n, max = NEWS_PROMPT_MAX) {
   //        一条 Nature 标题和一条 V2EX 评论，可靠度差得远，不该同一顶帽子扣下去。
   //      · **用途** —— 当**素材**用的时候，真假根本不是重点。
   //        一句"这个俗"不是事实，但它是关于"谁在乎什么"的一手材料 ——
-  //        **品味就是从这种东西里长出来的**（主人早就说过「时事可以补足品味」）。
+  //        **品味就是从这种东西里长出来的**（用户早就说过「时事可以补足品味」）。
   lines.push('⚠️ 这段是**网上抓来的标题和片段**。读的时候分两条轴，别混：')
   lines.push('')
   lines.push('**① 真伪** —— 只在你**要把它当事实引用**的时候才要紧：')
@@ -1380,7 +1380,7 @@ export function renderForPrompt(n, max = NEWS_PROMPT_MAX) {
   // ⚠️ 原来是 `n.items.slice(0, max)` —— **按数组顺序取前 N 个**。
   //    而 items 是按来源摞起来的，所以**第一个源通吃**：实测 7 个来源 30 条，
   //    注入里只有 13 条，全是 V2EX 的，另外 6 个源一条都没露出来。
-  //    主人一眼就看出来了：「感觉抓取的时事有点少」。
+  //    用户一眼就看出来了：「感觉抓取的时事有点少」。
   //
   //    改成**按来源轮着取**（每个源先来一条，再回头取第二条…）——
   //    这样 16 个位置真的会分给 7 个源，而不是被一个源吃干。
